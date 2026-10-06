@@ -12,7 +12,7 @@ The Addon Manager is FreeCAD's built-in package manager. This is the easiest way
 4. Under **Custom repositories**, click the **+** (green plus) button
 5. Enter the Repository URL:
    ```
-   https://github.com/trailcurrentoss/Utilities-LogoFreeCADPlugin
+   https://github.com/trailcurrentoss/TrailCurrentFreeCADTools
    ```
 6. Enter the Branch name: `main`
 7. Click **OK** to close Preferences
@@ -20,7 +20,7 @@ The Addon Manager is FreeCAD's built-in package manager. This is the easiest way
 ### Installing
 
 1. Open **Tools > Addon Manager**
-2. Search for **Utilities-LogoFreeCADPlugin** (or scroll to the U section alphabetically)
+2. Search for **TrailCurrent FreeCAD Tools** (or scroll to the T section alphabetically)
 3. Click the entry to view details
 4. Click **Install**
 5. Restart FreeCAD when prompted
@@ -29,7 +29,7 @@ The Addon Manager is FreeCAD's built-in package manager. This is the easiest way
 
 1. Open **Tools > Addon Manager**
 2. Click **Check for updates** (top of the window)
-3. If an update is available for TrailCurrent Logo, select it and click **Update**
+3. If an update is available for TrailCurrent FreeCAD Tools, select it and click **Update**
 4. Restart FreeCAD
 
 ## Option 2: Manual Install (Linux)
@@ -39,8 +39,8 @@ If you cloned or downloaded the repository yourself, an install script is provid
 ### Clone and install
 
 ```bash
-git clone https://github.com/trailcurrentoss/Utilities-LogoFreeCADPlugin.git
-cd Utilities-LogoFreeCADPlugin
+git clone https://github.com/trailcurrentoss/TrailCurrentFreeCADTools.git
+cd TrailCurrentFreeCADTools
 chmod +x install.sh
 ./install.sh
 ```
@@ -73,7 +73,7 @@ If the install script doesn't cover your setup, you can copy the plugin manually
 
 2. Copy the entire plugin folder into that Mod directory:
    ```bash
-   cp -r Utilities-LogoFreeCADPlugin /path/to/FreeCAD/Mod/
+   cp -r TrailCurrentFreeCADTools /path/to/FreeCAD/Mod/
    ```
 
 3. Restart FreeCAD
@@ -86,11 +86,9 @@ The `qrcode` Python package is **bundled** inside the plugin directory (`qrcode/
 
 After restarting FreeCAD:
 
-1. Look for **TrailCurrent Logo** in the workbench dropdown (the dropdown selector in the main toolbar, usually set to "Start" or "Part Design" by default)
+1. Look for **TrailCurrent FreeCAD Tools** in the workbench dropdown (the dropdown selector in the main toolbar, usually set to "Start" or "Part Design" by default)
 2. If you see it listed, the installation was successful
-3. Switch to it and you should see two toolbar buttons:
-   - **Deboss TrailCurrent Logo** -- the TrailCurrent logo icon
-   - **QR Code Emboss** -- the QR code icon
+3. Switch to it and you should see the toolbar: **Deboss Logo**, **Deboss Logo + Text**, **QR Code Emboss**, the three **DTM housing** buttons, **Send to Blender**, **Send to Bambu Studio** and **MCP Server**
 
 ### Troubleshooting
 
@@ -107,6 +105,6 @@ After restarting FreeCAD:
 
 ## Uninstalling
 
-**Addon Manager installs:** Open **Tools > Addon Manager**, find TrailCurrent Logo, and click **Uninstall**.
+**Addon Manager installs:** Open **Tools > Addon Manager**, find TrailCurrent FreeCAD Tools, and click **Uninstall**.
 
 **Manual installs:** Delete the plugin folder from your FreeCAD Mod directory and restart FreeCAD.

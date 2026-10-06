@@ -1,11 +1,10 @@
-# TrailCurrent Utilities for FreeCAD
+# TrailCurrent FreeCAD Tools
 
 A FreeCAD workbench that collects the tools we use day to day at TrailCurrent —
 branding printed parts, dropping in connector housings, handing a body straight
 to a slicer or to Blender, and driving FreeCAD itself from an AI agent over MCP.
 
-It started life as a logo debosser, which is where the repository name comes
-from. It has grown a good deal since.
+It started life as a logo debosser and has grown a good deal since.
 
 | | |
 |---|---|
@@ -32,7 +31,7 @@ Start the RPC server from inside FreeCAD — switch to this workbench and press
 
 ```bash
 claude mcp add freecad -- uv run --with mcp python3 \
-  ~/.local/share/FreeCAD/v1-1/Mod/Utilities-LogoFreeCADPlugin/mcp/freecad_mcp_server.py
+  ~/.local/share/FreeCAD/v1-1/Mod/TrailCurrentFreeCADTools/mcp/freecad_mcp_server.py
 ```
 
 `uv` pulls the `mcp` package on demand, so there is nothing to install first.
@@ -130,7 +129,7 @@ if you are scripting that side.
 
 1. [Install the plugin](docs/installation.md)
 2. Restart FreeCAD
-3. Switch to the **TrailCurrent Logo** workbench in the workbench dropdown
+3. Switch to the **TrailCurrent FreeCAD Tools** workbench in the workbench dropdown
 4. Select a flat face on a solid body
 5. Pick a tool from the toolbar and adjust the parameters in the side panel
 
@@ -139,6 +138,7 @@ if you are scripting that side.
 - [Installation Guide](docs/installation.md) — Addon Manager or manual install
 - [Usage Guide](docs/usage.md) — step-by-step walkthrough
 - [Settings Reference](docs/settings.md) — every parameter explained
+- [MCP Backlog](docs/backlog.md) — known defects and planned tools for the MCP server
 
 ## File structure
 
@@ -168,6 +168,6 @@ MIT. See [LICENSE](LICENSE).
 
 ## Links
 
-- [Issue tracker](https://github.com/trailcurrentoss/Utilities-LogoFreeCADPlugin/issues)
+- [Issue tracker](https://github.com/trailcurrentoss/TrailCurrentFreeCADTools/issues)
 - [TrailCurrent Claude skills](https://github.com/trailcurrentoss/TrailCurrentClaudeSkills)
 - [TrailCurrent](https://github.com/trailcurrentoss)

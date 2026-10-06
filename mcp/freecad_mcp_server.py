@@ -58,7 +58,7 @@ mcp = _MCPServer(
     instructions=textwrap.dedent("""\
         MCP server for interacting with a running FreeCAD instance.
         FreeCAD must be open with the MCP RPC server started
-        (TrailCurrent Logo workbench → MCP Server button).
+        (TrailCurrent FreeCAD Tools workbench → MCP Server button).
 
         The most powerful tool is execute_code, which runs arbitrary
         Python inside FreeCAD's interpreter. The convenience tools
@@ -111,7 +111,7 @@ def _call(code: str) -> str:
         return (
             "ERROR: Cannot connect to FreeCAD RPC server at {}. "
             "Make sure FreeCAD is running and the MCP RPC server is started "
-            "(TrailCurrent Logo workbench > MCP Server toolbar button)."
+            "(TrailCurrent FreeCAD Tools workbench > MCP Server toolbar button)."
         ).format(RPC_URL)
     except Exception as e:
         return "ERROR: RPC call failed: {}".format(e)

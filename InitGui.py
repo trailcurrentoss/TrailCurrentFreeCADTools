@@ -20,19 +20,21 @@ try:
         sys.path.insert(0, _plugin_dir)
 
     FreeCAD.Console.PrintMessage(
-        "TrailCurrent Logo plugin: loading from {}\n".format(_plugin_dir)
+        "TrailCurrent FreeCAD Tools: loading from {}\n".format(_plugin_dir)
     )
 
-    class TrailCurrentLogoWorkbench(FreeCADGui.Workbench):
-        MenuText = "TrailCurrent Logo"
-        ToolTip = "Deboss the TrailCurrent brand logo, emboss QR codes, place DTM connector housings, send models to Blender for rendering, and send models to Bambu Studio for slicing"
+    class TrailCurrentFreeCADToolsWorkbench(FreeCADGui.Workbench):
+        MenuText = "TrailCurrent FreeCAD Tools"
+        ToolTip = ("TrailCurrent FreeCAD Tools: deboss the TrailCurrent logo, emboss QR codes, "
+                   "place DTM connector housings, send bodies to Blender or Bambu Studio, "
+                   "and drive FreeCAD from an AI agent over MCP")
         Icon = os.path.join(_plugin_dir, "resources", "icons", "TrailCurrentLogo.svg")
 
         def GetClassName(self):
             return "Gui::PythonWorkbench"
 
         def Initialize(self):
-            FreeCAD.Console.PrintMessage("TrailCurrent Logo: Initialize()\n")
+            FreeCAD.Console.PrintMessage("TrailCurrent FreeCAD Tools: Initialize()\n")
             import logo_command
             import logotext_command
             import qr_command
@@ -51,16 +53,16 @@ try:
                         "TrailCurrent_SendToBlender",
                         "TrailCurrent_SendToBambuStudio",
                         "TrailCurrent_MCPServer"]
-            self.appendToolbar("TrailCurrent Logo", cmd_list)
+            self.appendToolbar("TrailCurrent FreeCAD Tools", cmd_list)
             self.appendMenu("TrailCurrent", cmd_list)
 
         def Activated(self):
-            FreeCAD.Console.PrintMessage("TrailCurrent Logo: Activated\n")
+            FreeCAD.Console.PrintMessage("TrailCurrent FreeCAD Tools: Activated\n")
 
         def Deactivated(self):
             pass
 
-    FreeCADGui.addWorkbench(TrailCurrentLogoWorkbench)
-    FreeCAD.Console.PrintMessage("TrailCurrent Logo plugin: workbench registered OK\n")
+    FreeCADGui.addWorkbench(TrailCurrentFreeCADToolsWorkbench)
+    FreeCAD.Console.PrintMessage("TrailCurrent FreeCAD Tools: workbench registered OK\n")
 except Exception as e:
-    FreeCAD.Console.PrintError("TrailCurrent Logo plugin FAILED: {}\n".format(e))
+    FreeCAD.Console.PrintError("TrailCurrent FreeCAD Tools FAILED: {}\n".format(e))

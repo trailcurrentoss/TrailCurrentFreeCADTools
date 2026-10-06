@@ -2,7 +2,9 @@
 
 ## Overview
 
-The TrailCurrent Logo workbench provides two tools:
+The TrailCurrent FreeCAD Tools workbench collects the branding, connector, handoff and MCP
+tools listed in the [README](../README.md). This guide walks through the two
+branding tools in detail:
 
 1. **Deboss TrailCurrent Logo** -- cuts the brand logo into a flat surface as a multi-level relief
 2. **QR Code Emboss** -- applies a scannable QR code to a flat surface (embossed or debossed)
@@ -19,9 +21,9 @@ Both tools produce new solid objects with all parameters stored for re-editing.
 
 Open the FreeCAD file containing the part you want to brand. This works with any solid body that has at least one flat face -- case lids, enclosure panels, flat plates, etc.
 
-#### 2. Switch to the TrailCurrent Logo workbench
+#### 2. Switch to the TrailCurrent FreeCAD Tools workbench
 
-Use the workbench dropdown in the main toolbar and select **TrailCurrent Logo**.
+Use the workbench dropdown in the main toolbar and select **TrailCurrent FreeCAD Tools**.
 
 #### 3. Select a flat face
 

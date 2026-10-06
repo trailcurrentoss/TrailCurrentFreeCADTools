@@ -1,5 +1,5 @@
 #!/bin/bash
-# Install the TrailCurrent Logo & QR Code plugin into FreeCAD.
+# Install the TrailCurrent FreeCAD Tools workbench into FreeCAD.
 #
 # Usage (local development):
 #   ./install.sh
@@ -11,7 +11,7 @@
 # native symlinks pick up changes automatically).
 #
 # Addon Manager users: You don't need this script.  Install directly
-# from FreeCAD → Tools → Addon Manager → search "TrailCurrent Logo".
+# from FreeCAD → Tools → Addon Manager → search "TrailCurrent FreeCAD Tools".
 
 set -e
 
@@ -59,6 +59,15 @@ echo "FreeCAD Mod directory: $MOD_DIR"
 
 DEST="$MOD_DIR/$PLUGIN_NAME"
 
+# The workbench used to ship under a different folder name. A leftover copy
+# would register a second workbench with the old class name, so clear it.
+for OLD in "$MOD_DIR/Utilities-LogoFreeCADPlugin"; do
+    if [ -L "$OLD" ] || [ -d "$OLD" ]; then
+        rm -rf "$OLD"
+        echo "Removed previous install: $OLD"
+    fi
+done
+
 if [ "$IS_SNAP" = "1" ]; then
     # Snap: copy files (sandbox blocks symlinks to external storage)
     echo "Snap FreeCAD detected — copying files."
@@ -92,8 +101,11 @@ fi
 
 echo ""
 echo "Restart FreeCAD to load the workbench."
-echo "Look for 'TrailCurrent Logo' in the workbench dropdown."
+echo "Look for 'TrailCurrent FreeCAD Tools' in the workbench dropdown."
 echo ""
 echo "Available tools:"
-echo "  - Deboss TrailCurrent Logo  (multi-level relief logo)"
-echo "  - QR Code Emboss            (scannable QR codes)"
+echo "  - Deboss TrailCurrent Logo        (multi-level relief logo, with or without text)"
+echo "  - QR Code Emboss                  (scannable QR codes)"
+echo "  - Place DTM2P / DTM4P / DTM12P    (Deutsch connector housings)"
+echo "  - Send to Blender / Bambu Studio  (render or slice the selected body)"
+echo "  - MCP Server                      (drive FreeCAD from an AI agent)"
