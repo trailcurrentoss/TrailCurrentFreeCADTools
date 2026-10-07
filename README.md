@@ -13,7 +13,7 @@ It started life as a logo debosser and has grown a good deal since.
 | **Connectors** | Place Deutsch DTM 2, 4 and 12-position housings as real geometry |
 | **Slicer handoff** | Send the selected body to Bambu Studio at print-grade tessellation |
 | **Blender handoff** | Send the selected body to Blender for rendering or animation |
-| **MCP server** | Expose FreeCAD to Claude Code and other MCP clients — 93 tools |
+| **MCP server** | Expose FreeCAD to Claude Code and other MCP clients — 96 tools |
 
 MIT licensed. FreeCAD 0.21 or newer; tested on 1.0 and 1.1.
 
@@ -36,7 +36,7 @@ claude mcp add freecad -- uv run --with mcp python3 \
 
 `uv` pulls the `mcp` package on demand, so there is nothing to install first.
 
-All 93 tools, grouped by what they touch:
+All 96 tools, grouped by what they touch:
 
 ```
 documents   list_documents  create_document  open_document  save_document  close_document
@@ -55,10 +55,10 @@ parametric  spreadsheet_set  spreadsheet_get  set_expression  clear_expression
 inspection  measure  measure_element  measure_distance  point_inside  check_interference
             capture_screenshot  set_view  set_camera  fit_view
 mesh        shape_to_mesh  mesh_info  mesh_to_shape  mesh_fix
-cam         cam_create_job  cam_add_tool  cam_list_tools  cam_add_operation  cam_add_dressup
-            cam_post  cam_audit
-drawing     drawing_create_page  drawing_add_view  drawing_add_section  drawing_add_dimension
-            drawing_export
+cam         cam_create_job  cam_add_tool  cam_list_tools  cam_add_operation  cam_set_operation
+            cam_operation_info  cam_add_dressup  cam_post  cam_audit
+drawing     drawing_create_page  drawing_add_view  drawing_add_section  drawing_list_geometry
+            drawing_add_dimension  drawing_export
 draft       draft_clone  draft_array  draft_wire
 io          import_file  export_object  export_dxf
 escape      execute_code

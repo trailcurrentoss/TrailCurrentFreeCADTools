@@ -88,9 +88,10 @@ mcp = _MCPServer(
                       set_camera, fit_view
           mesh        shape_to_mesh, mesh_info, mesh_to_shape, mesh_fix
           cam         cam_create_job, cam_add_tool, cam_list_tools,
-                      cam_add_operation, cam_add_dressup, cam_post, cam_audit
+                      cam_add_operation, cam_set_operation, cam_operation_info,
+                      cam_add_dressup, cam_post, cam_audit
           drawing     drawing_create_page, drawing_add_view, drawing_add_section,
-                      drawing_add_dimension, drawing_export
+                      drawing_list_geometry, drawing_add_dimension, drawing_export
           draft       draft_clone, draft_array, draft_wire
           io          import_file, export_object, export_dxf
           escape      execute_code -- arbitrary Python inside FreeCAD
@@ -3902,6 +3903,76 @@ _CAM_HELPERS = textwrap.dedent("""\
         else:
             print("  WARNING: the toolpath is EMPTY -- nothing will be cut. Check Base faces, depths and tool diameter.")
 
+    # Properties every operation has that are set by other means, and the
+    # groups FreeCAD uses for bookkeeping rather than settings.
+    _OP_SKIP_PROPS = ("Proxy", "Placement", "Path", "Label", "CycleTime", "Comment", "UserLabel",
+                      "Active", "ToolController", "Base", "Locations", "Disabled")
+    _OP_SKIP_GROUPS = ("Base", "Op Values", "", None)
+
+    def _op(doc, name):
+        op = _obj(doc, name, "operation")
+        if not (hasattr(op, "Path") and "ToolController" in op.PropertiesList):
+            raise _Fail("%s (%s) is not a CAM operation" % (op.Name, op.TypeId))
+        return op
+
+    def _op_props(op):
+        # Tunable properties of an operation: {group: [(name, type)]}.
+        groups = {}
+        for p in op.PropertiesList:
+            if p in _OP_SKIP_PROPS:
+                continue
+            g = op.getGroupOfProperty(p)
+            if g in _OP_SKIP_GROUPS:
+                continue
+            mode = op.getEditorMode(p)
+            if mode and "Hidden" in mode:
+                continue
+            groups.setdefault(g, []).append((p, op.getTypeIdOfProperty(p).replace("App::Property", "")))
+        return groups
+
+    def _op_apply(op, props):
+        # Set operation properties from a dict with validation; returns what was applied.
+        allowed = {p for grp in _op_props(op).values() for p, _ in grp}
+        hidden = [k for k in props if k not in allowed and k in op.PropertiesList]
+        if hidden:
+            raise _Fail("%s hidden in this configuration (another setting disables it, e.g. Side needs"
+                        " UseComp=true); tunable now: %s" % (hidden, sorted(allowed)))
+        unknown = [k for k in props if k not in allowed]
+        if unknown:
+            raise _Fail("unknown operation propert%s %s; tunable: %s" % (
+                "y" if len(unknown) == 1 else "ies", unknown, sorted(allowed)))
+        applied = []
+        for k, v in props.items():
+            if op.getTypeIdOfProperty(k) == "App::PropertyEnumeration":
+                choices = op.getEnumerationsOfProperty(k)
+                if v not in choices:
+                    raise _Fail("%s must be one of %s" % (k, choices))
+            if dict(op.ExpressionEngine).get(k):
+                # A literal value must win over the SetupSheet expression.
+                op.setExpression(k, None)
+            try:
+                setattr(op, k, v)
+            except Exception as e:
+                raise _Fail("cannot set %s = %r: %s" % (k, v, e))
+            applied.append((k, str(getattr(op, k))))
+        return applied
+
+    def _op_info(op):
+        expr = dict(op.ExpressionEngine)
+        for g, props in _op_props(op).items():
+            print("  [%s]" % g)
+            for p, t in props:
+                try:
+                    val = getattr(op, p)
+                except Exception:
+                    val = "?"
+                extra = ""
+                if t == "Enumeration":
+                    extra = "  choices " + str(op.getEnumerationsOfProperty(p))
+                if p in expr:
+                    extra += "  expression '%s'" % expr[p]
+                print("    %-24s %-12s %s%s" % (p, t, val, extra))
+
 """)
 
 
@@ -4081,6 +4152,7 @@ def cam_add_operation(
     step_down: float = 0.0,
     side: str = "",
     direction: str = "",
+    properties: str = "{}",
     name: str = "",
     document: str = "",
 ) -> str:
@@ -4088,6 +4160,9 @@ def cam_add_operation(
 
     The toolpath length and bounding box are reported; an empty toolpath is
     flagged, because an operation that cuts nothing otherwise looks fine.
+    Each kind has its own settings (StepOver, OffsetExtra, UseComp,
+    ClearingPattern, PeckDepth, HelixAngle, ...); pass them in properties,
+    and use cam_operation_info afterwards to see every tunable one.
 
     Args:
         job: CAM Job name.
@@ -4101,11 +4176,14 @@ def cam_add_operation(
         step_down: Depth per pass in mm. Default: tool diameter.
         side: profile only: "Outside" or "Inside".
         direction: "CW" or "CCW" where the operation has one.
+        properties: JSON of further settings, e.g. '{"OffsetExtra": "1 mm",
+            "UseComp": false, "StepOver": 40}'. Enum values and names are
+            validated; a quantity may be a number (mm) or a string with units.
         name: Name for the operation.
         document: Document name. Empty string for the active document.
     """
     return _call(_CAM_HELPERS + textwrap.dedent("""\
-        import importlib
+        import importlib, json
         import Path.Op.Gui.Base as PathOpGui
         doc = _doc({doc!r})
         App.setActiveDocument(doc.Name)
@@ -4178,14 +4256,69 @@ def cam_add_operation(
                 if val not in allowed:
                     raise _Fail("%s must be one of %s" % (prop.lower(), allowed))
                 setattr(op, prop, val)
+        extra = json.loads({props!r})
+        applied = _op_apply(op, extra) if extra else []
         doc.recompute()
         print("created", op.Name, "(" + kinds[{kind!r}] + ") in", job.Name, "with", tc.Name)
         print("  base:", [(t.Name, s) for t, s in bases] or "whole model")
         print("  depths: start", op.StartDepth, " final", op.FinalDepth,
               " step", getattr(op, "StepDown", "-"), " side", getattr(op, "Side", "-"), " direction", getattr(op, "Direction", "-"))
+        if applied:
+            print("  applied:", applied)
         _op_summary(op)
+        print("  tunable groups:", [g for g in _op_props(op)], "-- see cam_operation_info")
     """).format(doc=document, job=job, kind=kind, base=base, tc=tool_controller, sd=start_depth,
-                fd=final_depth, step=step_down, side=side, dirn=direction, name=name))
+                fd=final_depth, step=step_down, side=side, dirn=direction, props=properties,
+                name=name))
+
+
+@_tool(idempotent=True)
+def cam_set_operation(operation: str, properties: str, document: str = "") -> str:
+    """Change an operation's settings and report how the toolpath changed.
+
+    Args:
+        operation: Operation name.
+        properties: JSON of settings, e.g. '{"StepOver": 40, "OffsetExtra": "0.5 mm",
+            "ClearingPattern": "ZigZag"}'. Names and enum values are validated;
+            cam_operation_info lists what is tunable.
+        document: Document name. Empty string for the active document.
+    """
+    return _call(_CAM_HELPERS + textwrap.dedent("""\
+        import json
+        doc = _doc({doc!r})
+        op = _op(doc, {op!r})
+        props = json.loads({props!r})
+        if not props:
+            raise _Fail("no properties given")
+        before = op.Path.Length
+        applied = _op_apply(op, props)
+        doc.recompute()
+        print("set on", op.Name + ":", applied)
+        print("  path length: %.1f -> %.1f mm" % (before, op.Path.Length))
+        _op_summary(op)
+    """).format(doc=document, op=operation, props=properties))
+
+
+@_tool(read_only=True, idempotent=True)
+def cam_operation_info(operation: str, document: str = "") -> str:
+    """List an operation's tunable settings with values, enum choices and expressions.
+
+    Args:
+        operation: Operation name.
+        document: Document name. Empty string for the active document.
+    """
+    return _call(_CAM_HELPERS + textwrap.dedent("""\
+        doc = _doc({doc!r})
+        op = _op(doc, {op!r})
+        print(op.Name, "(" + type(op.Proxy).__name__ + ")", " tool:", op.ToolController.Name if op.ToolController else None)
+        base = getattr(op, "Base", None)
+        if isinstance(base, (list, tuple)):
+            print("  base:", [(t.Name, list(s)) for t, s in base] or "whole model")
+        elif base is not None:
+            print("  wraps:", base.Name)
+        _op_info(op)
+        _op_summary(op)
+    """).format(doc=document, op=operation))
 
 
 @_tool()
@@ -4516,6 +4649,70 @@ def drawing_add_section(
                 normal=normal, x=x, y=y, name=name))
 
 
+_TD_HELPERS = textwrap.dedent("""\
+    def _view_part(doc, name):
+        v = _obj(doc, name, "view")
+        if not v.TypeId.startswith("TechDraw::DrawViewPart") and v.TypeId != "TechDraw::DrawViewSection":
+            raise _Fail("%s is a %s, not a TechDraw part view" % (v.Name, v.TypeId))
+        return v
+
+    def _view_ready(v, timeout=5.0):
+        \"\"\"Wait for TechDraw's hidden-line worker to deliver the view's geometry.
+
+        The view's edges and vertices do not exist until the worker thread
+        finishes and the event loop delivers its result, so anything that
+        reads them right after creating the view sees nothing.
+        \"\"\"
+        import time
+        t0 = time.time()
+        while time.time() - t0 < timeout:
+            Gui.updateGui()
+            try:
+                if v.getVisibleEdges():
+                    return True
+            except Exception:
+                pass
+            time.sleep(0.02)
+        return False
+
+""")
+
+
+@_tool(read_only=True, idempotent=True)
+def drawing_list_geometry(view: str, document: str = "") -> str:
+    """List a drawing view's edges and vertices with the indices dimensions use.
+
+    TechDraw numbers edges and vertices per view, in view coordinates
+    (scaled, centred on the view), and the numbering is only known once the
+    view has been drawn. Read this before drawing_add_dimension.
+
+    Args:
+        view: DrawViewPart or section view name.
+        document: Document name. Empty string for the active document.
+    """
+    return _call(_TD_HELPERS + textwrap.dedent("""\
+        doc = _doc({doc!r})
+        v = _view_part(doc, {view!r})
+        if not _view_ready(v):
+            raise _Fail("%s has no geometry yet; does its Source have a shape?" % v.Name)
+        def p2(p):
+            return "(%.3f, %.3f)" % (p.x, p.y)
+        edges = v.getVisibleEdges()
+        print("%s: scale %g, %d visible edge(s), %d hidden" % (v.Name, v.Scale, len(edges), len(v.getHiddenEdges())))
+        for i in range(len(edges)):
+            e = v.getEdgeByIndex(i)
+            kind = type(e.Curve).__name__
+            detail = "%s -> %s" % (p2(e.Vertexes[0].Point), p2(e.Vertexes[-1].Point))
+            if "Circle" in kind:
+                detail += "  centre %s r %.3f" % (p2(e.Curve.Center), e.Curve.Radius)
+            print("  Edge%-4d %-8s len %8.3f  %s" % (i, kind, e.Length, detail))
+        verts = v.getVisibleVertexes()
+        for i in range(len(verts)):
+            pt = v.getVertexByIndex(i)
+            print("  Vertex%-2d %s" % (i, p2(pt.Point if hasattr(pt, "Point") else pt)))
+    """).format(doc=document, view=view))
+
+
 @_tool()
 def drawing_add_dimension(
     page: str,
@@ -4528,20 +4725,31 @@ def drawing_add_dimension(
 ) -> str:
     """Add a dimension to a drawing view and report its measured value.
 
+    References are either the view's own 2D geometry (see
+    drawing_list_geometry: "Edge0", "Vertex0,Vertex2") measured as projected,
+    or 3D elements of the source object ("Box:Edge1", "Box:Vertex1,Box:Vertex3")
+    measured true, which needs no knowledge of the view's numbering.
+
     Args:
         page: TechDraw page name.
         view: View the dimension belongs to.
         kind: Distance, DistanceX, DistanceY, Radius, Diameter, Angle or Area.
-        references: Comma-separated 2D references in the view, e.g. "Edge0,Edge1",
-            "Vertex0,Vertex3" or "Edge2" for a radius.
-        x: Label offset X on the page in mm.
-        y: Label offset Y in mm.
+        references: Comma-separated references, all 2D or all 3D as above.
+        x: Label offset X from the view, in mm.
+        y: Label offset Y, in mm.
         document: Document name. Empty string for the active document.
     """
-    return _call(textwrap.dedent("""\
+    return _call(_TD_HELPERS + textwrap.dedent("""\
         doc = _doc({doc!r})
         page = _obj(doc, {page!r}, "page")
-        v = _obj(doc, {view!r}, "view")
+        v = _view_part(doc, {view!r})
+        refs = _names({refs!r})
+        if not refs:
+            raise _Fail("no references given")
+        three_d = [":" in r or "." in r for r in refs]
+        if any(three_d) and not all(three_d):
+            raise _Fail("mix of 2D and 3D references; use one kind")
+        _view_ready(v)
         dim = doc.addObject("TechDraw::DrawViewDimension", "Dim")
         page.addView(dim)
         kinds = dim.getEnumerationsOfProperty("Type")
@@ -4549,8 +4757,36 @@ def drawing_add_dimension(
             doc.removeObject(dim.Name)
             raise _Fail("kind must be one of %s" % kinds)
         dim.Type = {kind!r}
-        dim.References2D = [(v, r) for r in _names({refs!r})]
-        dim.MeasureType = "Projected"
+        if all(three_d):
+            r3 = []
+            for r in refs:
+                o, sub = _sub_ref(doc, r)
+                if o not in v.Source:
+                    doc.removeObject(dim.Name)
+                    raise _Fail("%s is not a source of view %s (%s)" % (o.Name, v.Name, [s.Name for s in v.Source]))
+                if sub[0]:
+                    try:
+                        if o.Shape.getElement(sub[0]) is None:
+                            raise ValueError
+                    except Exception:
+                        doc.removeObject(dim.Name)
+                        raise _Fail("%s has no element %s" % (o.Name, sub[0]))
+                r3.append((o, sub[0]))
+            dim.References3D = r3
+            dim.References2D = [(v, "")]
+            dim.MeasureType = "True"
+        else:
+            n_e, n_v = len(v.getVisibleEdges()), len(v.getVisibleVertexes())
+            for r in refs:
+                kind_, _, idx = r.partition("Edge") if r.startswith("Edge") else r.partition("Vertex")
+                ok = (r.startswith("Edge") and idx.isdigit() and int(idx) < n_e) or \\
+                     (r.startswith("Vertex") and idx.isdigit() and int(idx) < n_v)
+                if not ok:
+                    doc.removeObject(dim.Name)
+                    raise _Fail("%s has no %s (it has Edge0..%d and Vertex0..%d; see drawing_list_geometry)" % (
+                        v.Name, r, n_e - 1, n_v - 1))
+            dim.References2D = [(v, r) for r in refs]
+            dim.MeasureType = "Projected"
         dim.X = {x!r}
         dim.Y = {y!r}
         doc.recompute()
@@ -4559,11 +4795,13 @@ def drawing_add_dimension(
             val = dim.getRawValue()
         except Exception:
             val = None
-        print("added", dim.Name, {kind!r}, "on", v.Name, "refs", _names({refs!r}))
+        print("added", dim.Name, {kind!r}, "on", v.Name, "refs", refs, "measured", dim.MeasureType)
         print("  value:", val, " format:", getattr(dim, "FormatSpec", ""), ("  STATE: " + ",".join(bad)) if bad else "")
-        if val == 0 or bad:
-            print("  WARNING: a zero value or an error means the references do not exist in this"
-                  " view or are the same element; TechDraw edge numbering is per view")
+        if bad:
+            print("  WARNING: the dimension is in error; the references may not form a %s" % {kind!r})
+        elif val == 0:
+            print("  WARNING: zero -- for DistanceX/DistanceY a single edge must not be perpendicular"
+                  " to that axis, and two references must not be the same element")
     """).format(doc=document, page=page, view=view, kind=kind, refs=references, x=x, y=y))
 
 
@@ -4624,17 +4862,42 @@ _VIEW_CODE = textwrap.dedent("""\
                  "back": "viewRear", "bottom": "viewBottom", "dimetric": "viewDimetric",
                  "trimetric": "viewTrimetric"}
         d = direction.strip().lower()
-        if d:
-            if d in names:
-                getattr(v, names[d])()
-            else:
-                try:
-                    v.setViewDirection(tuple(float(x) for x in d.split(",")))
-                except Exception:
-                    raise _Fail("direction must be one of %s or 'x,y,z'" % sorted(names))
-        if fit:
-            v.fitAll()
-        Gui.updateGui()
+        # Standard views are animated in FreeCAD 1.x; an animation still
+        # running when the next call places the camera keeps moving it.
+        anim = _animation_off(v)
+        try:
+            if d:
+                if d in names:
+                    getattr(v, names[d])()
+                else:
+                    try:
+                        v.setViewDirection(tuple(float(x) for x in d.split(",")))
+                    except Exception:
+                        raise _Fail("direction must be one of %s or 'x,y,z'" % sorted(names))
+            if fit:
+                v.fitAll()
+            Gui.updateGui()
+        finally:
+            _animation_restore(v, anim)
+
+    def _animation_off(v):
+        try:
+            v.stopAnimating()
+        except Exception:
+            pass
+        try:
+            was = v.isAnimationEnabled()
+            v.setAnimationEnabled(False)
+            return was
+        except Exception:
+            return None
+
+    def _animation_restore(v, was):
+        if was is not None:
+            try:
+                v.setAnimationEnabled(was)
+            except Exception:
+                pass
 
 """)
 
@@ -4689,12 +4952,16 @@ def set_camera(
             # The viewer may still be settling a previous fit or projection
             # change when the camera is placed, and that moves it again.
             # Place it, let the viewer process events, and place it once more.
-            for _ in range(2):
-                cam = v.getCameraNode()
-                cam.position.setValue(p.x, p.y, p.z)
-                cam.pointAt(coin.SbVec3f(t.x, t.y, t.z), up)
-                cam.focalDistance.setValue((t - p).Length)
-                Gui.updateGui()
+            anim = _animation_off(v)
+            try:
+                for _ in range(2):
+                    cam = v.getCameraNode()
+                    cam.position.setValue(p.x, p.y, p.z)
+                    cam.pointAt(coin.SbVec3f(t.x, t.y, t.z), up)
+                    cam.focalDistance.setValue((t - p).Length)
+                    Gui.updateGui()
+            finally:
+                _animation_restore(v, anim)
             actual = App.Vector(*v.getCameraNode().position.getValue().getValue())
             print("requested position", _vstr(p), " target", _vstr(t))
             if (actual - p).Length > 1e-3:

@@ -261,6 +261,33 @@ pattern: add to the body, set `Tip`, report validity and bounding box.
 
 ---
 
+## Phase 6 — Discoverability of references
+
+Found while using the Phase 4 tools: both take references the caller has no
+way to look up first.
+
+- [x] **42. `drawing_add_dimension` needs edge numbers the caller cannot see.**
+  TechDraw numbers edges and vertices per view, after the hidden-line
+  worker finishes, so a dimension placed right after `drawing_add_view`
+  silently measures 0. Add `drawing_list_geometry(view)` printing every
+  Edge and Vertex index with its projected coordinates, length and curve
+  type; make `drawing_add_dimension` wait for the view geometry, accept 3D
+  references ("Object:EdgeN", measured True) as well as 2D ones, and
+  explain a zero value.
+  *Check:* a DistanceX between two listed vertices reports the box width.
+
+- [x] **43. `cam_add_operation` exposes only side, direction and depths.**
+  Each operation kind has its own settings (StepOver, UseComp, OffsetExtra,
+  Pattern, ZigZagAngle, HelixAngle, PeckDepth, RetractHeight, ...). Add a
+  `properties` JSON argument applied with enum and quantity validation,
+  `cam_set_operation(operation, properties)` to tune afterwards reporting
+  the toolpath change, and `cam_operation_info(operation)` listing every
+  tunable property with its value, enum choices and expression.
+  *Check:* a profile created with `{"OffsetExtra": "1 mm"}` has a longer
+  toolpath than one without.
+
+---
+
 ## Cross-cutting
 
 - [x] **40. Live smoke test.** Add `mcp/tests/` with a script that drives the

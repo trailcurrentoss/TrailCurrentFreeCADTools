@@ -581,6 +581,24 @@ class Smoke:
         self.check("cam_add_operation facing on a face", "created FaceB4" in r and "EMPTY" not in r, r)
         r = t.cam_add_operation(job, "profile", base="B4:Face99", document=D)
         self.check("cam_add_operation rejects a missing face", r.startswith("ERROR:"), r)
+        base_len = float(re.search(r"path: ([\d.]+) mm", t.cam_operation_info("ProfileB4", document=D)).group(1))
+        r = t.cam_add_operation(job, "profile", side="Outside", step_down=5,
+                                properties='{"OffsetExtra": "1 mm"}', name="ProfileOffset", document=D)
+        m = re.search(r"path: ([\d.]+) mm", r)
+        self.check("cam_add_operation properties lengthen the path (item 43)",
+                   m and float(m.group(1)) > base_len and "applied: [('OffsetExtra'" in r, r)
+        r = t.cam_add_operation(job, "profile", properties='{"Stepovr": 1}', document=D)
+        self.check("cam_add_operation rejects an unknown property", r.startswith("ERROR:") and "tunable" in r, r)
+        r = t.cam_operation_info("ProfileOffset", document=D)
+        self.check("cam_operation_info", "[Profile]" in r and "OffsetExtra" in r and "choices" in r, r)
+        r = t.cam_set_operation("ProfileOffset", '{"Side": "Inside", "UseComp": false}', document=D)
+        self.check("cam_set_operation", "path length:" in r and "('Side', 'Inside')" in r, r)
+        r = t.cam_set_operation("ProfileOffset", '{"Direction": "Sideways"}', document=D)
+        self.check("cam_set_operation rejects a bad enum", r.startswith("ERROR:") and "'CW'" in r, r)
+        r = t.cam_set_operation("ProfileOffset", '{"Side": "Inside"}', document=D)
+        self.check("cam_set_operation explains a hidden property",
+                   r.startswith("ERROR:") and "hidden" in r and "UseComp" in r, r)
+        t.remove_object("ProfileOffset", document=D)
         r = t.cam_add_dressup("ProfileB4", "dogbone", document=D)
         self.check("cam_add_dressup dogbone", "created DressupDogbone" in r and "EMPTY" not in r, r)
         p = self.path("b4.nc")
@@ -597,8 +615,23 @@ class Smoke:
         self.check("drawing_add_view", "added view TopView" in r and "valid: True" in r, r)
         r = t.drawing_add_section("Page", "TopView", "Down", "5,5,5", x=200, y=120, document=D)
         self.check("drawing_add_section", "added section Section" in r and "valid: True" in r, r)
-        r = t.drawing_add_dimension("Page", "TopView", "DistanceX", "Edge0,Edge1", document=D)
-        self.check("drawing_add_dimension", "added Dim" in r and "value:" in r, r)
+        r = t.drawing_list_geometry("TopView", document=D)
+        self.check("drawing_list_geometry (item 42)", "4 visible edge(s)" in r and "Vertex3" in r, r)
+        verts = {int(m.group(1)): (float(m.group(2)), float(m.group(3)))
+                 for m in re.finditer(r"Vertex(\d+)\s+\((-?[\d.]+), (-?[\d.]+)\)", r)}
+        top = sorted((i for i, (vx, vy) in verts.items() if vy > 0), key=lambda i: verts[i][0])
+        refs = "Vertex%d,Vertex%d" % (top[0], top[-1]) if len(top) >= 2 else "Vertex0,Vertex2"
+        r = t.drawing_add_dimension("Page", "TopView", "DistanceX", refs, document=D)
+        m = re.search(r"value: ([\d.]+)", r)
+        self.check("drawing_add_dimension 2D vertices from the listing",
+                   m and abs(float(m.group(1)) - 10.0) < 0.01 and "measured Projected" in r, r)
+        r = t.drawing_add_dimension("Page", "TopView", "Distance", "B4:Edge1", document=D)
+        m = re.search(r"value: ([\d.]+)", r)
+        self.check("drawing_add_dimension 3D reference",
+                   m and abs(float(m.group(1)) - 10.0) < 0.01 and "measured True" in r, r)
+        r = t.drawing_add_dimension("Page", "TopView", "DistanceX", "Edge40", document=D)
+        self.check("drawing_add_dimension rejects an unknown 2D edge",
+                   r.startswith("ERROR:") and "drawing_list_geometry" in r, r)
         for ext in ("svg", "pdf", "dxf"):
             p = self.path("page." + ext)
             r = t.drawing_export("Page", p, document=D)
