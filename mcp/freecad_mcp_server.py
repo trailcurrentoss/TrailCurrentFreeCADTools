@@ -1143,24 +1143,33 @@ def set_placement(
 
 
 @_tool()
-def create_assembly(name: str = "Assembly", document: str = "") -> str:
-    """Create an Assembly container (falls back to App::Part if unavailable).
+def create_assembly(name: str = "Assembly", parent: str = "", document: str = "") -> str:
+    """Create an Assembly container, optionally nested inside another assembly.
+
+    A nested assembly moves as one rigid part of its parent: joints in the
+    parent reference its contents with paths like "Sub.L_Pin:Face3".
 
     Args:
         name: Name for the assembly.
+        parent: Assembly to nest the new one in. Empty for a top-level assembly.
         document: Document name. Empty string for the active document.
     """
     return _call(textwrap.dedent("""\
         doc = _doc({doc!r})
+        par = _obj(doc, {parent!r}, "parent assembly") if {parent!r} else None
+        if par is not None and par.TypeId not in ("Assembly::AssemblyObject", "App::Part"):
+            raise _Fail("%s is a %s, not an assembly" % (par.Name, par.TypeId))
         try:
             a = doc.addObject("Assembly::AssemblyObject", {name!r})
             kind = "Assembly::AssemblyObject"
         except Exception:
             a = doc.addObject("App::Part", {name!r})
             kind = "App::Part"
+        if par is not None:
+            par.addObject(a)
         doc.recompute()
-        print("created", a.Name, "as", kind)
-    """).format(name=name, doc=document))
+        print("created", a.Name, "as", kind, ("inside " + par.Name) if par else "")
+    """).format(name=name, parent=parent, doc=document))
 
 
 @_tool()
@@ -1170,12 +1179,15 @@ def add_link(
     name: str = "",
     count: int = 0,
     show_elements: bool = False,
+    source_document: str = "",
     document: str = "",
 ) -> str:
     """Add an App::Link instance of an object into an assembly.
 
     Links let one Body appear many times without duplicating geometry. Position
-    each instance afterwards with set_placement.
+    each instance afterwards with set_placement. The source may live in
+    another open document (a parts file); FreeCAD then requires both
+    documents to have been saved, so it can record the file path.
 
     Note: a Link renders nothing if its source Body's Tip is hidden -- use
     set_visibility rather than setting Visibility by hand.
@@ -1188,12 +1200,21 @@ def add_link(
             link (0 for a plain link). Position elements through
             PlacementList, or set show_elements to place each one.
         show_elements: Expose each array element as its own child object.
+        source_document: Document holding the source, when it is not this one.
         document: Document name. Empty string for the active document.
     """
     return _call(textwrap.dedent("""\
         doc = _doc({doc!r})
         asm = _obj(doc, {asm!r}, "assembly")
-        src = _obj(doc, {src!r}, "source")
+        if {srcdoc!r} and {srcdoc!r} != doc.Name:
+            sdoc = _doc({srcdoc!r})
+            src = _obj(sdoc, {src!r}, "source")
+            unsaved = [x.Name for x in (doc, sdoc) if not x.FileName]
+            if unsaved:
+                raise _Fail("an external link needs both documents saved first; unsaved: %s"
+                            " (use save_document)" % unsaved)
+        else:
+            src = _obj(doc, {src!r}, "source")
         l = doc.addObject("App::Link", {name!r} or ("L_" + src.Name))
         l.LinkedObject = src
         if {count!r} > 0:
@@ -1202,12 +1223,13 @@ def add_link(
         asm.addObject(l)
         doc.recompute()
         print("linked", src.Name, "into", asm.Name, "as", l.Name,
-              ("(array of %d)" % {count!r}) if {count!r} > 0 else "")
+              ("(array of %d)" % {count!r}) if {count!r} > 0 else "",
+              ("external, from " + src.Document.FileName) if src.Document != doc else "")
         print("children now:", len(asm.Group) if hasattr(asm, "Group") else "?")
         if _shape_of(src) is None:
             print("WARNING:", src.Name, "has no shape, so the link renders nothing")
     """).format(asm=assembly, src=source, name=name, count=count,
-                show=show_elements, doc=document))
+                show=show_elements, srcdoc=source_document, doc=document))
 
 
 @_tool(destructive=True)
@@ -3682,12 +3704,14 @@ _ASM_HELPERS = textwrap.dedent("""\
     def _asm_ref(asm, text):
         cname, _, elem = text.strip().partition(":")
         if not cname:
-            raise _Fail("element must be 'Component:Element', e.g. 'L_Bracket:Face6'")
-        comp0 = _obj(asm.Document, cname, "component")
+            raise _Fail("element must be 'Component:Element', e.g. 'L_Bracket:Face6' or"
+                        " 'SubAsm.L_Pin:Face3' for a part inside a nested assembly")
+        for seg in cname.split("."):
+            _obj(asm.Document, seg, "component")
         sub = (cname + "." + elem) if elem else cname
         comp, new_sub = UtilsAssembly.getComponentReference(asm, asm, sub)
         if comp is None:
-            raise _Fail("%s is not a component of %s (its direct children are %s)" % (
+            raise _Fail("%s is not inside %s (its direct children are %s)" % (
                 cname, asm.Name, [o.Name for o in _asm_parts(asm)]))
         if new_sub:
             if comp.getSubObject(new_sub) is None:

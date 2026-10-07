@@ -211,10 +211,26 @@ def _block_level(block):
 
 
 def _calibrate_report_levels():
-    """Learn which colours the Report view uses for warnings and errors."""
+    """Learn which colours the Report view uses for warnings and errors.
+
+    The colours come from the OutputWindow preferences when the user or a
+    theme has set them. Only when they are unset does this print one line
+    at each level and read the colour back, which is the one time the
+    probe lines appear in the Report view.
+    """
     rv = _report_view()
     if rv is None:
         return
+    try:
+        pg = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/OutputWindow")
+        for key, lvl in (("colorWarning", "warning"), ("colorError", "error")):
+            rgba = pg.GetUnsigned(key, 0)
+            if rgba:
+                _level_by_colour["#%06x" % (rgba >> 8)] = lvl
+        if len(set(_level_by_colour.values())) == 2:
+            return
+    except Exception:
+        pass
     try:
         qd = rv.document()
         n0 = max(qd.blockCount() - 1, 0)

@@ -84,8 +84,7 @@ srv = keep.get("_server")
 if srv is not None:
     for fn in ("execute", "ping", "screenshot"):
         srv.register_function(getattr(mod, fn), fn)
-if hasattr(mod, "_calibrate_report_levels"):
-    mod._level_by_colour.clear()
+if hasattr(mod, "_calibrate_report_levels") and not mod._level_by_colour:
     mod._calibrate_report_levels()
 print("reloaded", mod.__file__)
 '''
@@ -561,6 +560,29 @@ class Smoke:
         r = t.assembly_bom("Asm", document=D)
         self.check("assembly_bom counts link arrays (item 25)", "4 instance(s)" in r, r)
 
+        # --- item 44: parts from another document, nested sub-assemblies ---
+        r = t.create_document("MCPParts")
+        self.parts_doc = P = re.search(r"Created document: (\S+)", r).group(1)
+        t.add_object("PartDesign::Body", "Pin", document=P)
+        t.partdesign_primitive("Pin", "cylinder", '{"Radius": 2, "Height": 20}', document=P)
+        r = t.add_link("Asm2", "Pin", name="L_Pin", source_document=P, document=D)
+        self.check("add_link refuses an external link before saving",
+                   r.startswith("ERROR:") and "saved" in r, r)
+        t.save_document(self.path("parts.FCStd"), document=P)
+        t.save_document(self.path("smoke.FCStd"), document=D)
+        r = t.add_link("Asm2", "Pin", name="L_Pin", source_document=P, document=D)
+        self.check("add_link from another document (item 44)", "external, from" in r and "parts.FCStd" in r, r)
+        r = t.assembly_add_joint("Asm2", "Fixed", "LB:Face6", "L_Pin:Face2", name="pin_seat", document=D)
+        self.check("joint onto an external part", "solve: 0" in r and "L_Pin" in r and "MOVED" in r, r)
+        r = t.create_assembly("Sub", parent="Asm2", document=D)
+        self.check("create_assembly nested", "inside Asm2" in r, r)
+        t.add_link("Sub", "B1", name="L_Cap", document=D)
+        r = t.assembly_add_joint("Asm2", "Fixed", "L_Pin:Face3", "Sub.L_Cap:Face2", name="cap", document=D)
+        self.check("joint reaching into a nested assembly", "solve: 0" in r and "Sub " in r and "MOVED" in r, r)
+        r = t.assembly_bom("Asm2", document=D)
+        self.check("assembly_bom names the external document",
+                   P in r and "4 instance(s) of 3 unique part(s)" in r, r)
+
         # --- items 26-29: CAM ---
         r = t.cam_create_job("B4", stock="from_base", stock_margins="1,1,1", post_processor="grbl",
                              name="JobB4", document=D)
@@ -646,9 +668,9 @@ class Smoke:
         self.check("draft_wire", "edges: 3" in r and "wire closed: True" in r, r)
 
     def close(self):
-        if self.doc:
-            r = self.t.close_document(self.doc)
-            print(r)
+        for name in (self.doc, getattr(self, "parts_doc", None)):
+            if name:
+                print(self.t.close_document(name))
 
 
 def textwrap_json(code):
