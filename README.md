@@ -13,7 +13,7 @@ It started life as a logo debosser and has grown a good deal since.
 | **Connectors** | Place Deutsch DTM 2, 4 and 12-position housings as real geometry |
 | **Slicer handoff** | Send the selected body to Bambu Studio at print-grade tessellation |
 | **Blender handoff** | Send the selected body to Blender for rendering or animation |
-| **MCP server** | Expose FreeCAD to Claude Code and other MCP clients — 36 tools |
+| **MCP server** | Expose FreeCAD to Claude Code and other MCP clients — 93 tools |
 
 MIT licensed. FreeCAD 0.21 or newer; tested on 1.0 and 1.1.
 
@@ -23,8 +23,8 @@ MIT licensed. FreeCAD 0.21 or newer; tested on 1.0 and 1.1.
 
 `mcp/` contains an MCP server that connects to an XML-RPC server running inside
 FreeCAD and exposes the application as tools an agent can call. It is how we
-build parametric models, assemblies and CAM jobs conversationally rather than by
-clicking.
+build parametric models, assemblies, CAM jobs and drawings conversationally
+rather than by clicking.
 
 Start the RPC server from inside FreeCAD — switch to this workbench and press
 **MCP Server** — then point your client at the server:
@@ -36,22 +36,60 @@ claude mcp add freecad -- uv run --with mcp python3 \
 
 `uv` pulls the `mcp` package on demand, so there is nothing to install first.
 
-All 36 tools, grouped by what they touch:
+All 93 tools, grouped by what they touch:
 
 ```
-documents   list_documents  create_document  open_document  save_document  close_document  get_document_info
-objects     add_object  remove_object  get_object_properties  set_object_property  set_placement  set_visibility  get_selection  recompute  get_errors
-sketches    create_sketch  sketch_add_polyline  sketch_add_circle  sketch_info
-modelling   partdesign_feature  partdesign_pattern  create_assembly  add_link  transaction
+documents   list_documents  create_document  open_document  save_document  close_document
+            get_document_info  find_objects  dependencies  list_object_types  transaction  undo  redo
+objects     add_object  remove_object  get_object_properties  set_object_property  get_property_info
+            add_property  touch  set_placement  set_visibility  set_appearance  get_appearance
+            get_selection  set_selection  clear_selection  recompute  get_errors
+sketches    create_sketch  sketch_add_polyline  sketch_add_circle  sketch_add_rectangle  sketch_add_arc
+            sketch_add_slot  sketch_add_polygon  sketch_constrain  sketch_delete_geometry
+            sketch_list_geometry  sketch_info
+partdesign  partdesign_feature  partdesign_revolve  partdesign_hole  partdesign_loft  partdesign_pipe
+            partdesign_helix  partdesign_primitive  partdesign_pattern  partdesign_dressup  set_tip
+            create_datum  create_shapebinder
+assembly    create_assembly  add_link  assembly_ground  assembly_add_joint  assembly_solve  assembly_bom
 parametric  spreadsheet_set  spreadsheet_get  set_expression  clear_expression
-inspection  measure  check_interference  capture_screenshot  fit_view
+inspection  measure  measure_element  measure_distance  point_inside  check_interference
+            capture_screenshot  set_view  set_camera  fit_view
+mesh        shape_to_mesh  mesh_info  mesh_to_shape  mesh_fix
+cam         cam_create_job  cam_add_tool  cam_list_tools  cam_add_operation  cam_add_dressup
+            cam_post  cam_audit
+drawing     drawing_create_page  drawing_add_view  drawing_add_section  drawing_add_dimension
+            drawing_export
+draft       draft_clone  draft_array  draft_wire
 io          import_file  export_object  export_dxf
 escape      execute_code
 ```
 
+Every tool carries MCP annotations (read-only, destructive, idempotent), so a
+client can tell `measure` from `remove_object` without reading the docstring.
+The server also serves four resources (`freecad://documents`,
+`freecad://document/{name}/objects`, `freecad://types`, `freecad://selection`)
+and three prompts (`build_parametric_part`, `verify_assembly`,
+`set_up_cam_job`) that sequence the tools in the intended order.
+
 **Everything runs on FreeCAD's GUI thread.** A long call freezes the
 application, and a modal dialog opened by a tool will deadlock every call after
-it. Keep individual calls short.
+it. Keep individual calls short. `execute_code` takes a `timeout` (60 s by
+default); a call that runs past it is abandoned by the caller but keeps running
+in FreeCAD.
+
+Every result carries what FreeCAD itself said during the call. Recompute
+failures and deprecation notices go to the Report view, not stdout, so they are
+read back from there and returned as `[FreeCAD warnings]` and
+`[FreeCAD errors]`. A `[dialogs auto-dismissed]` block means a modal prompt was
+answered with its default button on your behalf.
+
+To check the server against a running FreeCAD, run the live smoke test. It
+exercises every tool against a scratch document and closes it on exit:
+
+```bash
+uv run --with mcp python3 mcp/tests/smoke_test.py            # test the tools
+uv run --with mcp python3 mcp/tests/smoke_test.py --reload-rpc  # also re-read rpc_server.py in FreeCAD first
+```
 
 If you are driving this with Claude Code, the companion
 [`freecad` skill](https://github.com/trailcurrentoss/TrailCurrentClaudeSkills)
@@ -148,7 +186,8 @@ if you are scripting that side.
 ├── mcp/                      # MCP server + in-FreeCAD XML-RPC server
 │   ├── freecad_mcp_server.py #   the MCP client-facing server
 │   ├── rpc_server.py         #   runs inside FreeCAD
-│   └── rpc_command.py        #   toolbar command to start/stop it
+│   ├── rpc_command.py        #   toolbar command to start/stop it
+│   └── tests/smoke_test.py   #   live test of every tool against a running FreeCAD
 ├── logo_*.py                 # Logo deboss: command, geometry, boolean ops
 ├── logotext_*.py             # Logo + text variant
 ├── qr_command.py / qr_emboss.py
