@@ -4438,7 +4438,12 @@ def cam_add_dressup(operation: str, kind: str = "dogbone", name: str = "",
             dr =doc.addObject("Path::FeaturePython", {name!r} or default)
             proxy = m.ObjectDressup(dr)
             dr.Base = op
-            PathUtils.findParentJob(op).Proxy.addOperation(dr, op)
+            job = PathUtils.findParentJob(op)
+            job.Proxy.addOperation(dr, op)
+            # Upstream drops the wrapped op from the group only when the tree
+            # redraws (ViewProviderDressup.claimChildren); until then it would
+            # post twice, so do it here.
+            job.Operations.Group = [o for o in job.Operations.Group if o is not op]
             if App.GuiUp:
                 dr.ViewObject.Proxy = m.ViewProviderDressup(dr.ViewObject)
                 op.ViewObject.Visibility = False
@@ -4548,7 +4553,7 @@ def cam_audit(document: str = "") -> str:
                 problems += 1
             for t in job.Tools.Group:
                 bit_jobs.setdefault(t.Tool.Name, set()).add(job.Name)
-            def walk(ops):
+            def walk(ops, depth=0):
                 for op in ops:
                     in_job.add(op.Name)
                     length = op.Path.Length if hasattr(op, "Path") else 0
@@ -4564,11 +4569,17 @@ def cam_audit(document: str = "") -> str:
                     bad = [t for t in op.State if t in ("Invalid", "Error")]
                     if bad:
                         flags.append("state " + ",".join(bad))
-                    print("  op %-24s %8.1f mm %s" % (op.Name, length, ("  PROBLEM: " + "; ".join(flags)) if flags else ""))
+                    if depth and op in job.Operations.Group:
+                        flags.append("also listed on its own -- posts twice")
+                    print("  %sop %-24s %8.1f mm %s" % ("  wraps " * depth, op.Name, length,
+                                                      ("  PROBLEM: " + "; ".join(flags)) if flags else ""))
                     # A dress-up wraps its operation in Base; audit that too.
                     if base is not None and not isinstance(base, (list, tuple)) and hasattr(base, "Path"):
-                        walk([base])
+                        walk([base], depth + 1)
             walk(job.Operations.Group)
+            problems += sum(1 for op in job.Operations.Group
+                            for b in [getattr(op, "Base", None)]
+                            if hasattr(b, "Path") and b in job.Operations.Group)
             problems += sum(1 for op in job.Operations.Group if hasattr(op, "Path") and op.Path.Length == 0)
         for bit, js in bit_jobs.items():
             if len(js) > 1:

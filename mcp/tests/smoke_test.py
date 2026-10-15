@@ -649,6 +649,9 @@ class Smoke:
         r = t.cam_add_dressup("DressupDogbone", "ramp", properties='{"Angle": 85}', document=D)
         self.check("cam_add_dressup ramp (no Create() upstream)",
                    "created RampEntryDressup" in r and "EMPTY" not in r and "('Angle', '85" in r, r)
+        ops_line = next((ln for ln in r.splitlines() if "job operations now" in ln), "")
+        self.check("cam_add_dressup ramp drops the wrapped op from the job (posts once)",
+                   "RampEntryDressup" in ops_line and "'DressupDogbone'" not in ops_line, r)
         r = t.cam_add_dressup("RampEntryDressup", "ramp", properties='{"Method": "Zigzag"}', document=D)
         self.check("cam_add_dressup rejects a bad enum", r.startswith("ERROR:") and "Helix" in r, r)
         p = self.path("b4.nc")
