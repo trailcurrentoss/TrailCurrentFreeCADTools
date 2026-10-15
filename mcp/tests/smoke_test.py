@@ -583,6 +583,29 @@ class Smoke:
         self.check("assembly_bom names the external document",
                    P in r and "4 instance(s) of 3 unique part(s)" in r, r)
 
+        # --- items 45-48: found on real assemblies ---
+        r = t.check_interference("*", document=D)
+        self.check("check_interference('*') skips masters of links (item 45)",
+                   "'B1'" not in r and "'B4'" not in r and "elapsed:" in r, r)
+        r = t.get_appearance("*", document=D)
+        self.check("get_appearance('*') skips origin features (item 46)",
+                   "X_Axis" not in r and "XY_Plane" not in r and "B1 " in r, r)
+        r = t.get_document_info(document=D, limit=3)
+        info = json.loads(r)
+        self.check("get_document_info limit and by_type (item 47)",
+                   info["listed"] == 3 and info["truncated"] is True
+                   and info["by_type"].get("PartDesign::Body", 0) >= 4
+                   and info["matched"] == info["object_count"], r[:400])
+        t.create_assembly("Board", document=D)
+        t.add_link("Board", "B1", name="Bd_a", document=D)
+        t.add_link("Board", "B2", name="Bd_b", document=D)
+        t.add_link("Asm2", "Board", name="L_Board", document=D)
+        r = t.assembly_bom("Asm2", document=D)
+        self.check("assembly_bom counts a linked container as one part (item 48)",
+                   "(container, 2 objects)" in r and "5 instance(s) of 4 unique part(s)" in r, r)
+        r = t.assembly_bom("Asm2", depth=2, document=D)
+        self.check("assembly_bom depth=2 descends", "container" not in r and "6 instance(s)" in r, r)
+
         # --- items 26-29: CAM ---
         r = t.cam_create_job("B4", stock="from_base", stock_margins="1,1,1", post_processor="grbl",
                              name="JobB4", document=D)
@@ -623,6 +646,11 @@ class Smoke:
         t.remove_object("ProfileOffset", document=D)
         r = t.cam_add_dressup("ProfileB4", "dogbone", document=D)
         self.check("cam_add_dressup dogbone", "created DressupDogbone" in r and "EMPTY" not in r, r)
+        r = t.cam_add_dressup("DressupDogbone", "ramp", properties='{"Angle": 85}', document=D)
+        self.check("cam_add_dressup ramp (no Create() upstream)",
+                   "created RampEntryDressup" in r and "EMPTY" not in r and "('Angle', '85" in r, r)
+        r = t.cam_add_dressup("RampEntryDressup", "ramp", properties='{"Method": "Zigzag"}', document=D)
+        self.check("cam_add_dressup rejects a bad enum", r.startswith("ERROR:") and "Helix" in r, r)
         p = self.path("b4.nc")
         r = t.cam_post(job, p, document=D)
         self.check("cam_post writes verified G-code (item 29)",

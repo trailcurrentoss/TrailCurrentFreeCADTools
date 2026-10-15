@@ -437,12 +437,15 @@ def get_document_info(
     include_shape_stats: bool = False,
     type_filter: str = "",
     label_contains: str = "",
+    limit: int = 200,
 ) -> str:
     """List a document's objects with type, visibility and bounding box.
 
     Cheap by default. Volume and Area need a full evaluation of every shape,
     which is seconds on the GUI thread for a large assembly, so they are off
-    unless asked for.
+    unless asked for. The listing stops at `limit` objects; the per-type
+    counts always cover the whole document, so use them with type_filter
+    and label_contains to narrow a big document down.
 
     Args:
         document: Document name. Empty string for the active document.
@@ -451,15 +454,24 @@ def get_document_info(
             "PartDesign::" or "App::Link".
         label_contains: Only objects whose Label contains this text
             (case-insensitive).
+        limit: Maximum objects to list (0 for no limit).
     """
     return _call(textwrap.dedent("""\
         import json
         doc = _doc({doc!r})
         objects = []
+        by_type = {{}}
+        matched = 0
+        truncated = False
         for obj in doc.Objects:
+            by_type[obj.TypeId] = by_type.get(obj.TypeId, 0) + 1
             if {tf!r} and {tf!r} not in obj.TypeId:
                 continue
             if {lc!r} and {lc!r}.lower() not in obj.Label.lower():
+                continue
+            matched += 1
+            if {limit!r} and len(objects) >= {limit!r}:
+                truncated = True
                 continue
             vo = getattr(obj, "ViewObject", None)
             info = {{
@@ -489,12 +501,15 @@ def get_document_info(
             "label": doc.Label,
             "filename": doc.FileName or "(unsaved)",
             "object_count": len(doc.Objects),
+            "by_type": dict(sorted(by_type.items(), key=lambda kv: -kv[1])),
+            "matched": matched,
             "listed": len(objects),
+            "truncated": truncated,
             "objects": objects,
         }}
         print(json.dumps(result, indent=2, default=str))
     """).format(doc=document, stats=include_shape_stats, tf=type_filter,
-                lc=label_contains))
+                lc=label_contains, limit=limit))
 
 
 @_tool(read_only=True, idempotent=True)
@@ -1680,7 +1695,7 @@ def measure(
 
 
 @_tool(read_only=True, idempotent=True)
-def check_interference(object_names: str = "*", document: str = "") -> str:
+def check_interference(object_names: str = "*", min_volume: float = 1e-3, document: str = "") -> str:
     """Pairwise interference check across many objects.
 
     Reports every pair whose solids actually overlap. Bounding boxes are used to
@@ -1688,23 +1703,37 @@ def check_interference(object_names: str = "*", document: str = "") -> str:
     parts. Run it before believing an assembly is correct -- coincident
     placement numbers do not prove the solids mate.
 
-    With "*", features inside a Body (pads, pockets, patterns) and container
-    objects are skipped: the Body's own shape already includes them, and
-    listing them would report a Body interfering with itself.
+    With "*", features inside a Body (pads, pockets, patterns), container
+    objects and the masters of App::Link instances are skipped: the Body's
+    own shape already includes its features, and a master sitting under its
+    own link would report as a full-volume interference.
+
+    Each pair costs a boolean on the GUI thread; the elapsed time is
+    reported. Name the objects explicitly on large assemblies.
 
     Args:
         object_names: Comma-separated names, or "*" for all links and solids.
+        min_volume: Overlaps below this many mm3 are not reported (thread
+            fits and modelling tolerance).
         document: Document name. Empty string for the active document.
     """
     return _call(textwrap.dedent("""\
+        import time
         IN = 25.4
+        t0 = time.time()
         doc = _doc({doc!r})
         names = {names!r}
         if names.strip() == "*":
+            linked = set()
+            for l in doc.Objects:
+                if l.TypeId == "App::Link" and l.LinkedObject is not None:
+                    linked.add(l.LinkedObject.Name)
             objs = []
             for o in doc.Objects:
                 if o.TypeId in ("App::Origin", "App::Line", "App::Plane", "App::Point",
                                 "App::Part", "Assembly::AssemblyObject"):
+                    continue
+                if o.Name in linked:
                     continue
                 parent = o.getParentGeoFeatureGroup()
                 if parent is not None and parent.TypeId == "PartDesign::Body":
@@ -1736,12 +1765,13 @@ def check_interference(object_names: str = "*", document: str = "") -> str:
                     continue
                 pairs += 1
                 v = s1.common(s2).Volume
-                if v > 1e-3:
+                if v > {minv!r}:
                     hits += 1
                     print("  INTERFERENCE {{}} x {{}}: {{:.4f}} mm3 ({{:.6f}} in3)".format(n1, n2, v, v/IN**3))
-        print("checked {{}} object(s) {{}}, {{}} overlapping bbox pair(s), {{}} real interference(s)".format(
-            len(shp), [n for n, _ in shp], pairs, hits))
-    """).format(names=object_names, doc=document))
+        print("checked {{}} object(s) {{}}, {{}} overlapping bbox pair(s), {{}} real interference(s) above {{}} mm3".format(
+            len(shp), [n for n, _ in shp], pairs, hits, {minv!r}))
+        print("elapsed: %.1f s" % (time.time() - t0))
+    """).format(names=object_names, minv=min_volume, doc=document))
 
 
 @_tool(read_only=True, idempotent=True)
@@ -3158,11 +3188,14 @@ def get_appearance(object_names: str = "*", document: str = "") -> str:
     return _call(textwrap.dedent("""\
         doc = _doc({doc!r})
         names = {names!r}
-        objs = doc.Objects if names.strip() == "*" else [_obj(doc, n) for n in _names(names)]
+        wildcard = names.strip() == "*"
+        objs = doc.Objects if wildcard else [_obj(doc, n) for n in _names(names)]
         def hexcol(t):
             return "#%02x%02x%02x" % tuple(int(round(v * 255)) for v in t[:3])
         n = 0
         for o in objs:
+            if wildcard and o.TypeId in ("App::Origin", "App::Line", "App::Plane", "App::Point"):
+                continue
             vo = getattr(o, "ViewObject", None)
             if vo is None:
                 continue
@@ -3855,21 +3888,24 @@ def assembly_solve(assembly: str, document: str = "") -> str:
 
 
 @_tool(read_only=True, idempotent=True)
-def assembly_bom(assembly: str, document: str = "") -> str:
+def assembly_bom(assembly: str, depth: int = 1, document: str = "") -> str:
     """Bill of materials: every part instanced in the assembly with quantities.
 
-    Link arrays count as their element count; nested assemblies and App::Part
-    containers are walked.
+    Link arrays count as their element count. Sub-assemblies built in place
+    are part of this assembly and are always walked. A link to a container
+    (an App::Part or another assembly, typically a purchased board) counts
+    as one part at depth 1; raise depth to list what is inside it.
 
     Args:
         assembly: Assembly::AssemblyObject or App::Part name.
+        depth: How many levels of linked containers to descend into.
         document: Document name. Empty string for the active document.
     """
     return _call(textwrap.dedent("""\
         doc = _doc({doc!r})
         asm = _obj(doc, {asm!r}, "assembly")
         rows = {{}}
-        def walk(container, mult):
+        def walk(container, mult, level):
             for o in getattr(container, "Group", []):
                 if o.TypeId in ("Assembly::JointGroup", "Assembly::BomGroup", "Assembly::ViewGroup"):
                     continue
@@ -3879,22 +3915,29 @@ def assembly_bom(assembly: str, document: str = "") -> str:
                     src = o.LinkedObject
                     n = (o.ElementCount or 1) * mult
                     if src is not None and src.TypeId in ("App::Part", "Assembly::AssemblyObject"):
-                        walk(src, n)
+                        if level < {depth!r}:
+                            walk(src, n, level + 1)
+                            continue
+                        inside = len([c for c in src.Group if c.TypeId not in (
+                            "Assembly::JointGroup", "Assembly::BomGroup", "Assembly::ViewGroup")])
+                        key = (src.Label + " (container, %d objects)" % inside, src.Name,
+                               src.Document.Name if src.Document != doc else "")
+                        rows[key] = rows.get(key, 0) + n
                         continue
                     key = (src.Label if src else "?", src.Name if src else "?",
                            src.Document.Name if src and src.Document != doc else "")
                     rows[key] = rows.get(key, 0) + n
                 elif o.TypeId in ("App::Part", "Assembly::AssemblyObject"):
-                    walk(o, mult)
+                    walk(o, mult, level)
                 else:
                     key = (o.Label, o.Name, "")
                     rows[key] = rows.get(key, 0) + mult
-        walk(asm, 1)
+        walk(asm, 1, 1)
         print("  %-4s %-28s %-24s %s" % ("qty", "part", "source object", "document"))
         for (label, name, extdoc), qty in sorted(rows.items(), key=lambda kv: (-kv[1], kv[0][0])):
             print("  %-4d %-28s %-24s %s" % (qty, label, name, extdoc or "(this)"))
         print(sum(rows.values()), "instance(s) of", len(rows), "unique part(s)")
-    """).format(doc=document, asm=assembly))
+    """).format(doc=document, asm=assembly, depth=depth))
 
 
 # ── CAM ────────────────────────────────────────────────────────────
@@ -4346,20 +4389,27 @@ def cam_operation_info(operation: str, document: str = "") -> str:
 
 
 @_tool()
-def cam_add_dressup(operation: str, kind: str = "dogbone", name: str = "", document: str = "") -> str:
-    """Wrap an operation in a dress-up: dogbone corners, holding tags or a boundary.
+def cam_add_dressup(operation: str, kind: str = "dogbone", name: str = "",
+                    properties: str = "{}", document: str = "") -> str:
+    """Wrap an operation in a dress-up: dogbone corners, holding tags, a boundary or a ramp entry.
 
     Model corners square and let the dogbone dress-up add the relief: a
     dogbone modelled into the part does not survive the toolpath offset.
 
+    A ramp replaces straight plunges with sloped entries. Its Angle is
+    measured from VERTICAL: FreeCAD's default 60 is a 30-degree slope; a
+    gentle entry for small cutters in metal is 85-87.
+
     Args:
         operation: Operation name.
-        kind: "dogbone", "tags" or "boundary".
+        kind: "dogbone", "tags", "boundary" or "ramp".
         name: Name for the dress-up object.
+        properties: JSON of dress-up settings applied after creation, e.g.
+            '{"Angle": 85, "Method": "RampMethod1"}'. Names and enum values are validated.
         document: Document name. Empty string for the active document.
     """
     return _call(_CAM_HELPERS + textwrap.dedent("""\
-        import importlib
+        import importlib, json
         doc = _doc({doc!r})
         App.setActiveDocument(doc.Name)
         op = _obj(doc, {op!r}, "operation")
@@ -4367,13 +4417,36 @@ def cam_add_dressup(operation: str, kind: str = "dogbone", name: str = "", docum
             raise _Fail("%s (%s) is not a CAM operation" % (op.Name, op.TypeId))
         mods = {{"dogbone": ("Path.Dressup.Gui.DogboneII", "DressupDogbone"),
                 "tags": ("Path.Dressup.Gui.Tags", "DressupTag"),
-                "boundary": ("Path.Dressup.Gui.Boundary", "DressupPathBoundary")}}
+                "boundary": ("Path.Dressup.Gui.Boundary", "DressupPathBoundary"),
+                "ramp": ("Path.Dressup.Gui.RampEntry", "RampEntryDressup")}}
         if {kind!r} not in mods:
-            raise _Fail("kind must be dogbone, tags or boundary")
+            raise _Fail("kind must be one of %s" % sorted(mods))
+        props = json.loads({props!r})
         modname, default = mods[{kind!r}]
         before = op.Path.Length
         m = importlib.import_module(modname)
-        dr = m.Create(op, {name!r} or default)
+        if {kind!r} == "ramp":
+            # RampEntry has no Create(); mirror CommandPathDressupRampEntry.Activated
+            # without its task panel (modal over the MCP).
+            import PathScripts.PathUtils as PathUtils
+            if op.isDerivedFrom("Path::FeatureCompoundPython"):
+                raise _Fail("ramp needs a single toolpath, not a compound")
+            # Validate enums before creating anything, so a bad call leaves no half-built dress-up.
+            for k, choices in m.ObjectDressup.propertyEnumerations():
+                if k in props and props[k] not in choices:
+                    raise _Fail("%s must be one of %s" % (k, choices))
+            dr =doc.addObject("Path::FeaturePython", {name!r} or default)
+            proxy = m.ObjectDressup(dr)
+            dr.Base = op
+            PathUtils.findParentJob(op).Proxy.addOperation(dr, op)
+            if App.GuiUp:
+                dr.ViewObject.Proxy = m.ViewProviderDressup(dr.ViewObject)
+                op.ViewObject.Visibility = False
+            proxy.setup(dr)
+        else:
+            dr = m.Create(op, {name!r} or default)
+        if props:
+            print("  applied:", _op_apply(dr, props))
         doc.recompute()
         print("created", dr.Name, "(" + {kind!r} + ") around", op.Name)
         print("  path length: %.1f -> %.1f mm" % (before, dr.Path.Length))
@@ -4381,7 +4454,7 @@ def cam_add_dressup(operation: str, kind: str = "dogbone", name: str = "", docum
         job = next((o for o in dr.InListRecursive if hasattr(o, "Operations") and hasattr(o, "Stock")), None)
         if job is not None:
             print("  job operations now:", [o.Name for o in job.Operations.Group])
-    """).format(doc=document, op=operation, kind=kind, name=name))
+    """).format(doc=document, op=operation, kind=kind, name=name, props=properties))
 
 
 @_tool(idempotent=True)
