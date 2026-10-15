@@ -1453,11 +1453,26 @@ def remove_object(object_name: str, document: str = "") -> str:
         if parent is not None and parent.TypeId == "PartDesign::Body" and parent.Tip == o:
             new_tip = getattr(o, "BaseFeature", None)
             parent.Tip = new_tip
+        # Removing a CAM dress-up must hand its wrapped operation back to the
+        # job in the same slot (what ViewProviderDressup.onDelete does in the
+        # GUI), or that cut silently drops out of the posted G-code.
+        unwrapped = None
+        b = getattr(o, "Base", None)
+        if o.TypeId == "Path::FeaturePython" and hasattr(b, "Path") and not isinstance(b, (list, tuple)):
+            for grp in o.InList:
+                if grp.TypeId == "App::DocumentObjectGroup" and o in grp.Group:
+                    grp.Group = [b if g is o else g for g in grp.Group]
+                    unwrapped = (b.Name, grp.Name)
+            o.Base = None
+            if App.GuiUp and b.ViewObject:
+                b.ViewObject.Visibility = True
         doc.removeObject(o.Name)
         doc.recompute()
         print("Removed:", {name!r})
         if parent is not None and parent.TypeId == "PartDesign::Body" and new_tip is not None:
             print("Tip of", parent.Name, "is now", new_tip.Name)
+        if unwrapped:
+            print("dress-up removed; %s is back in %s" % unwrapped)
         if dependents:
             print("objects that referenced it:", dependents)
     """).format(name=object_name, doc=document))
@@ -4403,7 +4418,10 @@ def cam_add_dressup(operation: str, kind: str = "dogbone", name: str = "",
     Args:
         operation: Operation name.
         kind: "dogbone", "tags", "boundary" or "ramp".
-        name: Name for the dress-up object.
+        name: Label for the dress-up. The internal Name always keeps FreeCAD's
+            default (e.g. RampEntryDressup001): CAM finds a dress-up's tool and
+            base operation by "Dressup"/"RampEntry" in the Name, and the simulator
+            and dress-up commands break without it.
         properties: JSON of dress-up settings applied after creation, e.g.
             '{"Angle": 85, "Method": "RampMethod1"}'. Names and enum values are validated.
         document: Document name. Empty string for the active document.
@@ -4435,7 +4453,7 @@ def cam_add_dressup(operation: str, kind: str = "dogbone", name: str = "",
             for k, choices in m.ObjectDressup.propertyEnumerations():
                 if k in props and props[k] not in choices:
                     raise _Fail("%s must be one of %s" % (k, choices))
-            dr =doc.addObject("Path::FeaturePython", {name!r} or default)
+            dr = doc.addObject("Path::FeaturePython", default)
             proxy = m.ObjectDressup(dr)
             dr.Base = op
             job = PathUtils.findParentJob(op)
@@ -4449,11 +4467,17 @@ def cam_add_dressup(operation: str, kind: str = "dogbone", name: str = "",
                 op.ViewObject.Visibility = False
             proxy.setup(dr)
         else:
-            dr = m.Create(op, {name!r} or default)
+            dr = m.Create(op, default)
+        if {name!r}:
+            dr.Label = {name!r}
         if props:
             print("  applied:", _op_apply(dr, props))
         doc.recompute()
-        print("created", dr.Name, "(" + {kind!r} + ") around", op.Name)
+        import Path.Dressup.Utils as PathDressup
+        if PathDressup.baseOp(dr) is not PathDressup.baseOp(op):
+            raise _Fail("%s does not resolve to its base operation; CAM will not find its tool" % dr.Name)
+        print("created", dr.Name, "(label " + dr.Label + ", " + {kind!r} + ") around", op.Name)
+        print("  tool:", PathDressup.toolController(dr).Name)
         print("  path length: %.1f -> %.1f mm" % (before, dr.Path.Length))
         _op_summary(dr)
         job = next((o for o in dr.InListRecursive if hasattr(o, "Operations") and hasattr(o, "Stock")), None)

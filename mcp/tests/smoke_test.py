@@ -646,7 +646,7 @@ class Smoke:
         t.remove_object("ProfileOffset", document=D)
         r = t.cam_add_dressup("ProfileB4", "dogbone", document=D)
         self.check("cam_add_dressup dogbone", "created DressupDogbone" in r and "EMPTY" not in r, r)
-        r = t.cam_add_dressup("DressupDogbone", "ramp", properties='{"Angle": 85}', document=D)
+        r = t.cam_add_dressup("DressupDogbone", "ramp", name="B4_Ramp", properties='{"Angle": 85}', document=D)
         self.check("cam_add_dressup ramp (no Create() upstream)",
                    "created RampEntryDressup" in r and "EMPTY" not in r and "('Angle', '85" in r, r)
         ops_line = next((ln for ln in r.splitlines() if "job operations now" in ln), "")
@@ -654,6 +654,14 @@ class Smoke:
                    "RampEntryDressup" in ops_line and "'DressupDogbone'" not in ops_line, r)
         r = t.cam_add_dressup("RampEntryDressup", "ramp", properties='{"Method": "Zigzag"}', document=D)
         self.check("cam_add_dressup rejects a bad enum", r.startswith("ERROR:") and "Helix" in r, r)
+        r = t.cam_add_dressup("ProfileB4", "dogbone", name="B4_Bones", document=D)
+        self.check("cam_add_dressup custom name is the Label; Name keeps 'Dressup' so CAM finds the tool",
+                   "created DressupDogbone" in r and "label B4_Bones" in r and "tool: " in r, r)
+        r = t.cam_add_dressup("RampEntryDressup", "dogbone", name="Ramp_Bones", document=D)
+        self.check("cam_add_dressup resolves the tool through a stack of dress-ups", "tool: " in r, r)
+        r = t.remove_object(r.split("created ")[1].split()[0], document=D)
+        self.check("remove_object on a dress-up puts its operation back in the job",
+                   "RampEntryDressup is back in" in r, r)
         p = self.path("b4.nc")
         r = t.cam_post(job, p, document=D)
         self.check("cam_post writes verified G-code (item 29)",
