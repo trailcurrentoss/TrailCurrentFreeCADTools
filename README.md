@@ -10,10 +10,10 @@ It started life as a logo debosser and has grown a good deal since.
 |---|---|
 | **Branding** | Deboss the TrailCurrent logo as a multi-level relief, with or without part text |
 | **QR codes** | Emboss or deboss a scannable QR code onto any flat face |
-| **Connectors** | Place Deutsch DTM 2, 4 and 12-position housings as real geometry |
+| **Connectors** | Place Deutsch DTM 2, 3, 4, 6, 8 and 12-position housings as real geometry |
 | **Slicer handoff** | Send the selected body to Bambu Studio at print-grade tessellation |
 | **Blender handoff** | Send the selected body to Blender for rendering or animation |
-| **MCP server** | Expose FreeCAD to Claude Code and other MCP clients — 96 tools |
+| **MCP server** | Expose FreeCAD to Claude Code and other MCP clients — 100 tools |
 
 MIT licensed. FreeCAD 0.21 or newer; tested on 1.0 and 1.1.
 
@@ -36,7 +36,7 @@ claude mcp add freecad -- uv run --with mcp python3 \
 
 `uv` pulls the `mcp` package on demand, so there is nothing to install first.
 
-All 96 tools, grouped by what they touch:
+All 100 tools, grouped by what they touch:
 
 ```
 documents   list_documents  create_document  open_document  save_document  close_document
@@ -58,7 +58,8 @@ mesh        shape_to_mesh  mesh_info  mesh_to_shape  mesh_fix
 cam         cam_create_job  cam_add_tool  cam_list_tools  cam_add_operation  cam_set_operation
             cam_operation_info  cam_add_dressup  cam_post  cam_audit
 drawing     drawing_create_page  drawing_add_view  drawing_add_section  drawing_list_geometry
-            drawing_add_dimension  drawing_export
+            drawing_add_dimension  drawing_add_balloon  drawing_add_note  drawing_add_table
+            drawing_set_title  drawing_export
 draft       draft_clone  draft_array  draft_wire
 io          import_file  export_object  export_dxf
 escape      execute_code
@@ -138,9 +139,25 @@ value pre-filled.
 
 ## Connector housings
 
-**Place DTM2P / DTM4P / DTM12P Housing** drops a Deutsch DTM connector housing
-into the document as real geometry, so an enclosure can be designed around the
-actual part rather than a guess at its envelope.
+**Place Deutsch Housing** fuses a termination housing for a Deutsch DTM04
+receptacle onto a flat face. Pick the size in the side panel: 2, 3, 4, 6, 8 or
+12 position. The housing wraps the outside of the receptacle for a snug,
+removable fit; glue the receptacle in and the plug's own latch does the locking.
+Select a face and an edge to sit the housing's front on that edge. Double-click
+a placed housing to move it or change its size, and the front stays on the edge.
+
+Each housing is traced from the official TE/Deutsch STEP model. The source
+models live alongside those files in `TrailCurrentCommonCADFiles/` (`DTM3P`,
+`DTM6P` and `DTM8P` follow the 4-position housing's clearances and walls).
+`tests/test_deutsch_housing.py` places every size on top, side, underside and
+rotated faces and checks each placement:
+
+```
+freecadcmd tests/test_deutsch_housing.py
+```
+
+The older **Place DTM2P / DTM4P / DTM12P Housing** commands are still under
+*TrailCurrent › Single-size DTM housings* so existing documents keep working.
 
 ---
 
@@ -191,7 +208,10 @@ if you are scripting that side.
 ├── logo_*.py                 # Logo deboss: command, geometry, boolean ops
 ├── logotext_*.py             # Logo + text variant
 ├── qr_command.py / qr_emboss.py
-├── dtm2p_*.py / dtm4p_*.py / dtm12p_*.py    # Deutsch DTM housings
+├── deutsch_housing_*.py      # Deutsch DTM housings, every size
+├── dtm2p_*.py / dtm4p_*.py / dtm12p_*.py    # single-size commands (older documents)
+├── resources/shapes/         # housing BREPs
+├── tests/                    # headless checks (freecadcmd)
 ├── bambu_command.py          # Send to Bambu Studio
 ├── blender_command.py        # Send to Blender
 ├── blender_studio_template.py

@@ -40,6 +40,9 @@ try:
             import qr_command
             import blender_command
             import bambu_command
+            import deutsch_housing_command
+            # Single-size commands stay registered so documents made with
+            # them keep recomputing; new work uses the Deutsch Housing command.
             import dtm2p_command
             import dtm4p_command
             import dtm12p_command
@@ -47,14 +50,16 @@ try:
             cmd_list = ["TrailCurrent_DebossLogo",
                         "TrailCurrent_DebossLogoText",
                         "TrailCurrent_QRCodeEmboss",
-                        "TrailCurrent_DTM2P",
-                        "TrailCurrent_DTM4P",
-                        "TrailCurrent_DTM12P",
+                        "TrailCurrent_DeutschHousing",
                         "TrailCurrent_SendToBlender",
                         "TrailCurrent_SendToBambuStudio",
                         "TrailCurrent_MCPServer"]
             self.appendToolbar("TrailCurrent FreeCAD Tools", cmd_list)
             self.appendMenu("TrailCurrent", cmd_list)
+            self.appendMenu(["TrailCurrent", "Single-size DTM housings"],
+                            ["TrailCurrent_DTM2P",
+                             "TrailCurrent_DTM4P",
+                             "TrailCurrent_DTM12P"])
 
         def Activated(self):
             FreeCAD.Console.PrintMessage("TrailCurrent FreeCAD Tools: Activated\n")

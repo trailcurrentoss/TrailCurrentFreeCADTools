@@ -88,7 +88,7 @@ After restarting FreeCAD:
 
 1. Look for **TrailCurrent FreeCAD Tools** in the workbench dropdown (the dropdown selector in the main toolbar, usually set to "Start" or "Part Design" by default)
 2. If you see it listed, the installation was successful
-3. Switch to it and you should see the toolbar: **Deboss Logo**, **Deboss Logo + Text**, **QR Code Emboss**, the three **DTM housing** buttons, **Send to Blender**, **Send to Bambu Studio** and **MCP Server**
+3. Switch to it and you should see the toolbar: **Deboss Logo**, **Deboss Logo + Text**, **QR Code Emboss**, **Place Deutsch Housing**, **Send to Blender**, **Send to Bambu Studio** and **MCP Server**
 
 ### Troubleshooting
 
