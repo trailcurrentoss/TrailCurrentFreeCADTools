@@ -91,7 +91,9 @@ mcp = _MCPServer(
                       cam_add_operation, cam_set_operation, cam_operation_info,
                       cam_add_dressup, cam_post, cam_audit
           drawing     drawing_create_page, drawing_add_view, drawing_add_section,
-                      drawing_list_geometry, drawing_add_dimension, drawing_export
+                      drawing_list_geometry, drawing_add_dimension,
+                      drawing_add_balloon, drawing_add_note, drawing_add_table,
+                      drawing_set_title, drawing_export
           draft       draft_clone, draft_array, draft_wire
           io          import_file, export_object, export_dxf
           escape      execute_code -- arbitrary Python inside FreeCAD
@@ -4650,9 +4652,12 @@ def drawing_create_page(template: str = "A4_Landscape", name: str = "Page", docu
         if _os.path.isabs(t):
             path = t
         else:
-            files = sorted(f for f in _os.listdir(tdir) if f.lower().endswith(".svg"))
-            hits = [f for f in files if f.lower() == t.lower() + ".svg"] or \\
-                   [f for f in files if t.lower() in f.lower()]
+            # Templates with title blocks live in the ASME/ and ISO/ subfolders.
+            files = sorted(_os.path.relpath(_os.path.join(r, f), tdir)
+                           for r, _d, fs in _os.walk(tdir) for f in fs if f.lower().endswith(".svg"))
+            base = lambda f: _os.path.basename(f).lower()
+            hits = [f for f in files if base(f) == t.lower() + ".svg"] or \\
+                   [f for f in files if t.lower() in base(f)]
             if not hits:
                 raise _Fail("no template matches %r; available: %s" % (t, files))
             path = _os.path.join(tdir, hits[0])
@@ -4677,18 +4682,29 @@ def drawing_add_view(
     x: float = 100.0,
     y: float = 100.0,
     name: str = "View",
+    explode: str = "",
     document: str = "",
 ) -> str:
     """Add a projected view of objects to a TechDraw page.
+
+    An exploded or step-by-step assembly drawing is one call: list every
+    part in sources and pull the ones being fitted out with explode. Each
+    exploded part is drawn from a hidden App::Link copy offset from the
+    original, so the model and its assembly do not move, and the copy
+    follows the part if its geometry changes. An Assembly exploded view
+    object can also be a source; TechDraw draws its exploded state, but
+    always with every visible part of the assembly.
 
     Args:
         page: TechDraw page name.
         sources: Comma-separated objects to draw.
         direction: top, bottom, front, rear, right, left, iso, or "x,y,z".
         scale: Drawing scale (1.0 = full size).
-        x: Position on the page in mm from the left.
-        y: Position on the page in mm from the bottom.
+        x: Position on the page in mm from the left (view centre).
+        y: Position on the page in mm from the bottom (view centre).
         name: Name for the view.
+        explode: Offsets for some of the sources, in model mm:
+            "Screen=0,40,0; Battery=0,-30,0". Names must be in sources.
         document: Document name. Empty string for the active document.
     """
     return _call(textwrap.dedent("""\
@@ -4697,6 +4713,45 @@ def drawing_add_view(
         if page.TypeId != "TechDraw::DrawPage":
             raise _Fail("%s is a %s, not a TechDraw page" % (page.Name, page.TypeId))
         srcs = [_obj(doc, n) for n in _names({srcs!r})]
+        moves = {{}}
+        for item in [s for s in {explode!r}.split(";") if s.strip()]:
+            n, _, vec = item.partition("=")
+            n = n.strip()
+            if n not in [s.Name for s in srcs]:
+                raise _Fail("explode names %s, which is not one of the sources %s" % (n, [s.Name for s in srcs]))
+            try:
+                moves[n] = App.Vector(*[float(c) for c in vec.split(",")])
+            except Exception:
+                raise _Fail("explode entries are Name=dx,dy,dz; got %r" % item.strip())
+        exploded = []
+        if moves:
+            grp = doc.addObject("App::DocumentObjectGroup", {name!r} + "_Exploded")
+            grp.Label = {name!r} + " exploded parts"
+            for i, s in enumerate(srcs):
+                if s.Name not in moves:
+                    continue
+                # A Link's own placement replaces its target's, so link the
+                # final target and give the copy the source's pose plus the offset.
+                target = s.LinkedObject if s.TypeId == "App::Link" else s
+                ref = _shape_of(s)
+                if ref is None:
+                    raise _Fail("%s has no shape to explode" % s.Name)
+                lk = doc.addObject("App::Link", s.Name + "_X")
+                lk.LinkedObject = target
+                lk.Placement = App.Placement(moves[s.Name], App.Rotation()).multiply(s.Placement)
+                lk.addProperty("App::PropertyString", "ExplodedFrom", "TechDraw",
+                               "The object this exploded copy stands in for")
+                lk.ExplodedFrom = s.Name
+                lk.Label = s.Label + " (exploded)"
+                lk.Visibility = False
+                grp.addObject(lk)
+                doc.recompute([lk])
+                got = _shape_of(lk).BoundBox.Center - ref.BoundBox.Center
+                if (got - moves[s.Name]).Length > 1e-6:
+                    doc.removeObject(lk.Name)
+                    raise _Fail("exploded copy of %s landed %s from it, not %s" % (s.Name, _vstr(got), _vstr(moves[s.Name])))
+                srcs[i] = lk
+                exploded.append((s.Name, lk.Name, moves[s.Name]))
         dirs = {dirs!r}
         d = {dirn!r}.strip().lower()
         if d in dirs:
@@ -4720,9 +4775,11 @@ def drawing_add_view(
         doc.recompute()
         print("added view", v.Name, "of", [s.Name for s in srcs], "to", page.Name)
         print("  direction", _vstr(v.Direction), " scale", v.Scale, " at (%g, %g)" % (v.X, v.Y))
+        for src, lk, mv in exploded:
+            print("  exploded %s by %s (drawn from %s)" % (src, _vstr(mv), lk))
         print(" ", _state_str(v))
     """).format(doc=document, page=page, srcs=sources, dirn=direction, scale=scale, x=x, y=y,
-                name=name, dirs=_VIEW_DIRECTIONS))
+                name=name, dirs=_VIEW_DIRECTIONS, explode=explode))
 
 
 @_tool()
@@ -4937,6 +4994,239 @@ def drawing_add_dimension(
     """).format(doc=document, page=page, view=view, kind=kind, refs=references, x=x, y=y))
 
 
+@_tool()
+def drawing_add_balloon(
+    page: str,
+    view: str,
+    target: str,
+    text: str,
+    dx: float = 15.0,
+    dy: float = 15.0,
+    shape: str = "Circular",
+    end_type: str = "",
+    document: str = "",
+) -> str:
+    """Add a numbered callout balloon whose leader points at a part in a view.
+
+    The target is given in model space, so no knowledge of the view's edge
+    numbering is needed. Naming an object that the view drew from an
+    exploded copy (drawing_add_view explode=...) points at the copy.
+
+    Args:
+        page: TechDraw page name.
+        view: The DrawViewPart the balloon belongs to.
+        target: An object name (leader ends at its bounding-box centre), or
+            a model point "x,y,z".
+        text: Balloon text, usually the parts-list item number.
+        dx: Balloon offset from the leader end, in page mm (right is +).
+        dy: Balloon offset from the leader end, in page mm (up is +).
+        shape: Bubble shape, e.g. Circular, None, Triangle, Square, Hexagon.
+        end_type: Leader end symbol; empty keeps FreeCAD's preference.
+        document: Document name. Empty string for the active document.
+    """
+    return _call(_TD_HELPERS + textwrap.dedent("""\
+        doc = _doc({doc!r})
+        page = _obj(doc, {page!r}, "page")
+        v = _view_part(doc, {view!r})
+        t = {target!r}.strip()
+        try:
+            pt = App.Vector(*[float(c) for c in t.split(",")])
+            what = "point " + _vstr(pt)
+        except ValueError:
+            o = doc.getObject(t)
+            drawn = [s for s in v.Source if s is o] or \\
+                    [s for s in v.Source if getattr(s, "ExplodedFrom", "") == t]
+            if o is None and not drawn:
+                raise _Fail("target %r is neither an object nor 'x,y,z'" % t)
+            if not drawn:
+                raise _Fail("%s is not drawn in %s (sources: %s)" % (t, v.Name, [s.Name for s in v.Source]))
+            s = _shape_of(drawn[0])
+            if s is None:
+                raise _Fail("%s has no shape" % drawn[0].Name)
+            pt = s.BoundBox.Center
+            what = drawn[0].Name + " centre " + _vstr(pt)
+        # A view is drawn centred on its sources' centroid, not the model origin,
+        # so project relative to that (as TechDraw's own cosmetic code does).
+        _view_ready(v)
+        q = v.projectPoint(pt - v.getGeometricCenter())
+        b = doc.addObject("TechDraw::DrawViewBalloon", "Balloon")
+        b.SourceView = v
+        for prop, val, label in (("BubbleShape", {shape!r}, "shape"), ("EndType", {end!r}, "end_type")):
+            if val:
+                opts = b.getEnumerationsOfProperty(prop)
+                if val not in opts:
+                    doc.removeObject(b.Name)
+                    raise _Fail("%s must be one of %s" % (label, opts))
+                setattr(b, prop, val)
+        # Balloon coordinates are unscaled view coordinates; the offset is given in page mm.
+        b.OriginX, b.OriginY = q.x, q.y
+        b.X, b.Y = q.x + {dx!r} / v.Scale, q.y + {dy!r} / v.Scale
+        b.Text = {text!r}
+        page.addView(b)
+        doc.recompute()
+        tip = (float(v.X.Value) + q.x * v.Scale, float(v.Y.Value) + q.y * v.Scale)
+        print("added balloon", b.Name, repr(b.Text), "on", v.Name, "pointing at", what)
+        print("  leader end on page (%.1f, %.1f) mm, balloon at (%.1f, %.1f) mm" % (
+            tip[0], tip[1], tip[0] + {dx!r}, tip[1] + {dy!r}))
+        _view_ready(v)
+        edges = v.getVisibleEdges()
+        if edges:
+            box = edges[0].BoundBox
+            for e in edges[1:]:
+                box.add(e.BoundBox)
+            px, py = q.x * v.Scale, q.y * v.Scale
+            # View geometry may be stored with Y inverted; accept either sense.
+            in_y = box.YMin - 1 <= py <= box.YMax + 1 or -box.YMax - 1 <= py <= -box.YMin + 1
+            if not (box.XMin - 1 <= px <= box.XMax + 1 and in_y):
+                print("  WARNING: the leader end falls outside the drawn geometry of", v.Name)
+        tpl = page.Template
+        if tpl is not None:
+            bx, by = tip[0] + {dx!r}, tip[1] + {dy!r}
+            if not (0 < bx < tpl.Width.Value and 0 < by < tpl.Height.Value):
+                print("  WARNING: the balloon lies off the page (%.0f x %.0f mm)" % (tpl.Width.Value, tpl.Height.Value))
+    """).format(doc=document, page=page, view=view, target=target, text=text, dx=dx, dy=dy,
+                shape=shape, end=end_type))
+
+
+@_tool()
+def drawing_add_note(
+    page: str,
+    text: str,
+    x: float = 100.0,
+    y: float = 100.0,
+    size: float = 4.0,
+    width: float = 0.0,
+    bold: bool = False,
+    name: str = "Note",
+    document: str = "",
+) -> str:
+    """Add a block of text to a TechDraw page (instructions, notes, headings).
+
+    Args:
+        page: TechDraw page name.
+        text: The text; each line break starts a new line on the page.
+        x: Page position in mm from the left (centre of the block).
+        y: Page position in mm from the bottom (centre of the block).
+        size: Text height in mm.
+        width: Wrap lines longer than this many mm; 0 does not wrap.
+        bold: Bold text, for headings.
+        name: Name for the annotation.
+        document: Document name. Empty string for the active document.
+    """
+    return _call(textwrap.dedent("""\
+        doc = _doc({doc!r})
+        page = _obj(doc, {page!r}, "page")
+        if page.TypeId != "TechDraw::DrawPage":
+            raise _Fail("%s is a %s, not a TechDraw page" % (page.Name, page.TypeId))
+        lines = {text!r}.split("\\n")
+        a = doc.addObject("TechDraw::DrawViewAnnotation", {name!r})
+        page.addView(a)
+        a.Text = lines
+        a.TextSize = {size!r}
+        if {width!r} > 0:
+            a.MaxWidth = {width!r}
+        if {bold!r}:
+            a.TextStyle = "Bold"
+        a.X, a.Y = {x!r}, {y!r}
+        doc.recompute()
+        print("added note", a.Name, "to", page.Name, "at (%g, %g): %d line(s), %g mm text" % (
+            a.X, a.Y, len(lines), a.TextSize))
+    """).format(doc=document, page=page, text=text, x=x, y=y, size=size, width=width,
+                bold=bold, name=name))
+
+
+@_tool()
+def drawing_add_table(
+    page: str,
+    sheet: str,
+    cell_start: str = "A1",
+    cell_end: str = "",
+    x: float = 100.0,
+    y: float = 100.0,
+    text_size: float = 3.5,
+    name: str = "Table",
+    document: str = "",
+) -> str:
+    """Draw a Spreadsheet range on a TechDraw page, e.g. a parts list.
+
+    The table stays live: editing the spreadsheet updates the drawing.
+
+    Args:
+        page: TechDraw page name.
+        sheet: Spreadsheet::Sheet object name.
+        cell_start: Top-left cell of the range.
+        cell_end: Bottom-right cell; empty uses the sheet's used range.
+        x: Page position in mm from the left (centre of the table).
+        y: Page position in mm from the bottom (centre of the table).
+        text_size: Text height in mm.
+        name: Name for the table view.
+        document: Document name. Empty string for the active document.
+    """
+    return _call(textwrap.dedent("""\
+        doc = _doc({doc!r})
+        page = _obj(doc, {page!r}, "page")
+        sh = _obj(doc, {sheet!r}, "spreadsheet")
+        if sh.TypeId != "Spreadsheet::Sheet":
+            raise _Fail("%s is a %s, not a Spreadsheet::Sheet" % (sh.Name, sh.TypeId))
+        start, end = {start!r}, {end!r}
+        if not end:
+            used = sh.getUsedRange()
+            if not used or not used[1]:
+                raise _Fail("%s is empty" % sh.Name)
+            end = used[1]
+        t = doc.addObject("TechDraw::DrawViewSpreadsheet", {name!r})
+        page.addView(t)
+        t.Source = sh
+        t.CellStart = start
+        t.CellEnd = end
+        t.TextSize = {size!r}
+        t.X, t.Y = {x!r}, {y!r}
+        doc.recompute()
+        print("added table", t.Name, "of", sh.Name, start + ":" + end, "to", page.Name, "at (%g, %g)" % (t.X, t.Y))
+        print(" ", _state_str(t))
+    """).format(doc=document, page=page, sheet=sheet, start=cell_start, end=cell_end, x=x, y=y,
+                size=text_size, name=name))
+
+
+@_tool(idempotent=True)
+def drawing_set_title(page: str, fields: str = "", document: str = "") -> str:
+    """Fill in a page's title block, or list its fields.
+
+    Field names come from the template (they differ between templates), so
+    call with no fields first to see them and their current values.
+
+    Args:
+        page: TechDraw page name.
+        fields: "Name=Value; Name2=Value2". Empty lists the fields.
+        document: Document name. Empty string for the active document.
+    """
+    return _call(textwrap.dedent("""\
+        doc = _doc({doc!r})
+        page = _obj(doc, {page!r}, "page")
+        tpl = page.Template
+        if tpl is None or not hasattr(tpl, "EditableTexts"):
+            raise _Fail("%s has no SVG template with editable fields" % page.Name)
+        et = dict(tpl.EditableTexts)
+        changes = {{}}
+        for item in [s for s in {fields!r}.split(";") if s.strip()]:
+            k, sep, val = item.partition("=")
+            k = k.strip()
+            if not sep or k not in et:
+                raise _Fail("unknown field %r; this template has %s" % (k, sorted(et)))
+            changes[k] = val.strip()
+        if changes:
+            et.update(changes)
+            tpl.EditableTexts = et
+            doc.recompute()
+            print("set", len(changes), "title-block field(s) on", page.Name)
+        if not et:
+            print("%s's template has no editable title-block fields; pick one that does,"
+                  " e.g. drawing_create_page(\\"ANSIB_Landscape\\") or an ISO5457 sheet" % page.Name)
+        for k in sorted(et):
+            print("  %-18s %s%s" % (k, et[k], "   <- set" if k in changes else ""))
+    """).format(doc=document, page=page, fields=fields))
+
+
 @_tool(idempotent=True)
 def drawing_export(page: str, file_path: str, document: str = "") -> str:
     """Export a TechDraw page to SVG, PDF or DXF, verifying the file.
@@ -4955,6 +5245,11 @@ def drawing_export(page: str, file_path: str, document: str = "") -> str:
         path = {path!r}
         ext = _os.path.splitext(path)[1].lower().lstrip(".")
         doc.recompute()
+        # The template (frame and title block) is only drawn once the page has
+        # a window; exporting a page that was never opened silently writes the
+        # views with no frame.
+        if ext in ("svg", "pdf") and page.ViewObject is not None:
+            page.ViewObject.doubleClicked()
         Gui.updateGui()
         if _os.path.exists(path):
             _os.remove(path)

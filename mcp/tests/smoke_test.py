@@ -693,6 +693,48 @@ class Smoke:
         r = t.drawing_add_dimension("Page", "TopView", "DistanceX", "Edge40", document=D)
         self.check("drawing_add_dimension rejects an unknown 2D edge",
                    r.startswith("ERROR:") and "drawing_list_geometry" in r, r)
+        r = t.drawing_add_view("Page", "B4", "iso", 1.0, 80, 60, name="ExplView",
+                               explode="B4=0,0,30", document=D)
+        self.check("drawing_add_view explode draws an offset copy",
+                   "exploded B4 by (0.0000, 0.0000, 30.0000)" in r and "valid: True" in r, r)
+        r = t.drawing_add_view("Page", "B4", "iso", 1.0, 80, 60, name="BadExpl",
+                               explode="Nope=0,0,1", document=D)
+        self.check("drawing_add_view explode rejects a name not in sources",
+                   r.startswith("ERROR:") and "not one of the sources" in r, r)
+        r = t.drawing_add_balloon("Page", "ExplView", "B4", "1", document=D)
+        self.check("drawing_add_balloon resolves the exploded copy",
+                   "added balloon" in r and "B4_X centre" in r and "outside" not in r, r)
+        r = t.drawing_add_balloon("Page", "TopView", "5,5,10", "2", dx=-10, document=D)
+        self.check("drawing_add_balloon at a model point", "pointing at point (5.0000" in r, r)
+        r = t.drawing_add_balloon("Page", "TopView", "B4", "3", shape="Blob", document=D)
+        self.check("drawing_add_balloon rejects an unknown shape",
+                   r.startswith("ERROR:") and "shape must be one of" in r, r)
+        r = t.drawing_add_note("Page", "STEP 1\nFit the part.", 200, 40, size=5, bold=True, document=D)
+        self.check("drawing_add_note", "added note" in r and "2 line(s)" in r, r)
+        r = t.drawing_add_table("Page", "Params", x=220, y=170, document=D)
+        self.check("drawing_add_table uses the sheet's used range",
+                   "added table" in r and "Params A1:B1" in r and "valid: True" in r, r)
+        r = t.drawing_set_title("Page", document=D)
+        self.check("drawing_set_title says when a template has no fields", "no editable title-block fields" in r, r)
+        r = t.drawing_create_page("ANSIA_Landscape", name="TitlePage", document=D)
+        self.check("drawing_create_page finds templates in subfolders",
+                   "created page TitlePage" in r and "ANSIA_Landscape.svg" in r, r)
+        r = t.drawing_set_title("TitlePage", document=D)
+        fields = re.findall(r"^  (\S+)", r, re.M)
+        self.check("drawing_set_title lists the template fields", "DrawingTitle1" in fields, r)
+        r = t.drawing_set_title("TitlePage", "DrawingTitle1=Smoke test; Sheet=1 / 1", document=D)
+        self.check("drawing_set_title sets fields",
+                   "set 2 title-block field(s)" in r and "Smoke test   <- set" in r, r)
+        r = t.drawing_set_title("TitlePage", "NoSuchField=x", document=D)
+        self.check("drawing_set_title rejects an unknown field",
+                   r.startswith("ERROR:") and "this template has" in r, r)
+        t.drawing_add_view("TitlePage", "B4", "iso", 2.0, 100, 120, name="TitleView", document=D)
+        p = self.path("title.svg")
+        r = t.drawing_export("TitlePage", p, document=D)
+        svg = open(p, encoding="utf-8", errors="replace").read() if os.path.exists(p) else ""
+        # The frame only renders once the page has a window; a page exported
+        # unopened came out with views and no title block.
+        self.check("drawing_export includes the filled-in title block", "Smoke test" in svg, r)
         for ext in ("svg", "pdf", "dxf"):
             p = self.path("page." + ext)
             r = t.drawing_export("Page", p, document=D)

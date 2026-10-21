@@ -573,7 +573,10 @@ def stop():
         _watchdog.stop()
         _watchdog = None
 
+    # shutdown() only ends serve_forever(); the listening socket stays
+    # bound until server_close(), and a restart then fails with EADDRINUSE.
     _server.shutdown()
+    _server.server_close()
     _server = None
     _server_thread = None
 
