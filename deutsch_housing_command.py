@@ -508,8 +508,8 @@ class DeutschHousingCommand:
             "MenuText": "Place Deutsch Housing",
             "ToolTip": (
                 "Deutsch Housing\n"
-                "Place a termination housing for a Deutsch DTM receptacle\n"
-                "(2, 3, 4, 6, 8 or 12 position) onto the selected flat face.\n"
+                "Place a termination housing for a Deutsch DTM, DT or DTP\n"
+                "receptacle onto the selected flat face.\n"
                 "Select a Face + Edge to align the housing front to the edge.\n"
                 "Select an existing housing to re-edit it or change its size."
             ),

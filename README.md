@@ -10,7 +10,7 @@ It started life as a logo debosser and has grown a good deal since.
 |---|---|
 | **Branding** | Deboss the TrailCurrent logo as a multi-level relief, with or without part text |
 | **QR codes** | Emboss or deboss a scannable QR code onto any flat face |
-| **Connectors** | Place Deutsch DTM 2, 3, 4, 6, 8 and 12-position housings as real geometry |
+| **Connectors** | Place housings for Deutsch DTM (2–12), DT (2–12) and DTP (2, 4) receptacles as real geometry |
 | **Slicer handoff** | Send the selected body to Bambu Studio at print-grade tessellation |
 | **Blender handoff** | Send the selected body to Blender for rendering or animation |
 | **MCP server** | Expose FreeCAD to Claude Code and other MCP clients — 100 tools |
@@ -139,16 +139,17 @@ value pre-filled.
 
 ## Connector housings
 
-**Place Deutsch Housing** fuses a termination housing for a Deutsch DTM04
-receptacle onto a flat face. Pick the size in the side panel: 2, 3, 4, 6, 8 or
-12 position. The housing wraps the outside of the receptacle for a snug,
+**Place Deutsch Housing** fuses a termination housing for a Deutsch
+receptacle onto a flat face. Pick it in the side panel: DTM 2, 3, 4, 6, 8 or 12,
+DT 2, 3, 4, 6, 8 or 12, or DTP 2 or 4 position. The housing wraps the outside of the receptacle for a snug,
 removable fit; glue the receptacle in and the plug's own latch does the locking.
 Select a face and an edge to sit the housing's front on that edge. Double-click
 a placed housing to move it or change its size, and the front stays on the edge.
 
 Each housing is traced from the official TE/Deutsch STEP model. The source
-models live alongside those files in `TrailCurrentCommonCADFiles/` (`DTM3P`,
-`DTM6P` and `DTM8P` follow the 4-position housing's clearances and walls).
+models live alongside those files in `TrailCurrentCommonCADFiles/`. Every size
+added after DTM2P, DTM4P and DTM12P follows the DTM 4-position housing's
+clearances and walls.
 `tests/test_deutsch_housing.py` places every size on top, side, underside and
 rotated faces and checks each placement:
 

@@ -35,6 +35,14 @@ VARIANTS = {
     "DTM6P": ("DTM 6-position", "DTM04-6P", "TrailCurrentTerminationHousingDTM6P.brep"),
     "DTM8P": ("DTM 8-position", "DTM04-08PA", "TrailCurrentTerminationHousingDTM8P.brep"),
     "DTM12P": ("DTM 12-position", "DTM04-12PA", "TrailCurrentTerminationHousing12P.brep"),
+    "DT2P": ("DT 2-position", "DT04-2P", "TrailCurrentTerminationHousingDT2P.brep"),
+    "DT3P": ("DT 3-position", "DT04-3P", "TrailCurrentTerminationHousingDT3P.brep"),
+    "DT4P": ("DT 4-position", "DT04-4P", "TrailCurrentTerminationHousingDT4P.brep"),
+    "DT6P": ("DT 6-position", "DT04-6P", "TrailCurrentTerminationHousingDT6P.brep"),
+    "DT8P": ("DT 8-position", "DT04-08PA", "TrailCurrentTerminationHousingDT8P.brep"),
+    "DT12P": ("DT 12-position", "DT04-12PA", "TrailCurrentTerminationHousingDT12P.brep"),
+    "DTP2P": ("DTP 2-position", "DTP04-2P", "TrailCurrentTerminationHousingDTP2P.brep"),
+    "DTP4P": ("DTP 4-position", "DTP04-4P", "TrailCurrentTerminationHousingDTP4P.brep"),
 }
 
 DEFAULT_VARIANT = "DTM4P"
