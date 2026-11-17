@@ -169,8 +169,10 @@ The older **Place DTM2P / DTM4P / DTM12P Housing** commands are still under
 Tessellates the selected body at print-grade resolution, writes the mesh to
 `~/TrailCurrentPrints`, and opens it in Bambu Studio. The command finds Bambu
 Studio wherever it lives — a distribution package, `/opt`, a Flatpak, or an
-AppImage under `~/Applications` — and reuses a running instance rather than
-starting a second one.
+AppImage under `~/Applications`. Each send starts Bambu Studio unless its
+**Single Instance** preference is on (File → Preferences → General), in which
+case the part opens as a new plate in the window that is already open. Turn it
+on: two copies signed in to the same printer can fail to send.
 
 ### Send to Blender
 
@@ -178,6 +180,19 @@ Exports the selected body and opens it in Blender, for renders and assembly
 animations. Pairs with the
 [`blender` skill](https://github.com/trailcurrentoss/TrailCurrentClaudeSkills)
 if you are scripting that side.
+
+### How handoffs launch applications
+
+Both handoffs start the application with the environment it would get from the
+desktop (`launch_env.py`). A FreeCAD AppImage exports variables for its own
+use, among them `PYTHONHOME` and `SSL_CERT_FILE` pointing inside its mount and
+the desktop's one-time focus token. Inherited, they made Bambu Studio's network
+plug-in use FreeCAD's certificate bundle, which disappears when FreeCAD exits,
+and let the launched app take keyboard focus from other windows. Check it with:
+
+```
+python3 tests/test_launch_env.py
+```
 
 ---
 
@@ -215,6 +230,7 @@ if you are scripting that side.
 ├── tests/                    # headless checks (freecadcmd)
 ├── bambu_command.py          # Send to Bambu Studio
 ├── blender_command.py        # Send to Blender
+├── launch_env.py             # clean environment for launched applications
 ├── blender_studio_template.py
 ├── qrcode/                   # Bundled qrcode package
 ├── install.sh                # Manual install helper (Linux)

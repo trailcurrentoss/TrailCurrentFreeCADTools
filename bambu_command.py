@@ -16,6 +16,8 @@ import FreeCADGui
 
 from PySide import QtWidgets, QtCore
 
+from launch_env import popen_kwargs
+
 _plugin_dir = os.path.dirname(os.path.abspath(__file__))
 
 # Flatpak sandbox cannot read /tmp — stage under $HOME.
@@ -372,7 +374,10 @@ class SendToBambuTaskPanel:
 
         launched = False
         try:
-            subprocess.Popen(cmd)
+            # Clean environment: inheriting FreeCAD's AppImage variables
+            # points Bambu's network plug-in at FreeCAD's CA bundle and
+            # hands it FreeCAD's focus token. See launch_env.py.
+            subprocess.Popen(cmd, **popen_kwargs())
             launched = True
         except (PermissionError, OSError) as e:
             FreeCAD.Console.PrintWarning(

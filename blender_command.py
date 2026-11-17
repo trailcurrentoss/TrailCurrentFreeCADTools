@@ -9,6 +9,8 @@ import FreeCADGui
 
 from PySide import QtWidgets, QtCore
 
+from launch_env import popen_kwargs
+
 _plugin_dir = os.path.dirname(os.path.abspath(__file__))
 
 
@@ -297,7 +299,8 @@ class SendToBlenderTaskPanel:
         # Try to launch Blender directly
         launched = False
         try:
-            subprocess.Popen(cmd)
+            # Clean environment: see launch_env.py.
+            subprocess.Popen(cmd, **popen_kwargs())
             launched = True
         except (PermissionError, OSError) as e:
             FreeCAD.Console.PrintWarning(
